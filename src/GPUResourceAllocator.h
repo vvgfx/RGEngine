@@ -29,6 +29,8 @@ class GPUResourceAllocator
     void cleanup();
 
     VkDevice getDevice();
+    VkPhysicalDevice getPhysicalDevice() const;
+    VmaAllocator getAllocator() const;
 
   private:
     VmaAllocator _allocator;

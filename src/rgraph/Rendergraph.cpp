@@ -5,8 +5,10 @@
 #include "vk_images.h"
 #include "vk_initializers.h"
 #include "vk_types.h"
+#include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <climits>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -111,6 +113,177 @@ void rgraph::Rendergraph::AddTrackedBuffer(const std::string name, AllocatedBuff
     buffers[name] = buffer;
 }
 
+void rgraph::Rendergraph::DeclareTransientImage(const std::string &name, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage)
+{
+    declaredImages[name] = {extent, format, usage};
+}
+
+// ---------------------------------------------------------------------------
+// Memory aliasing helpers
+// ---------------------------------------------------------------------------
+
+void rgraph::Rendergraph::computeResourceLifetimes()
+{
+    resourceLifetimes.clear();
+    for (auto &[name, _] : declaredImages)
+    {
+        resourceLifetimes[name] = {};
+    }
+
+    for (int i = 0; i < (int)passData.size(); i++)
+    {
+        const Pass &pass = passData[i];
+
+        auto update = [&](const std::string &name)
+        {
+            auto it = resourceLifetimes.find(name);
+            if (it == resourceLifetimes.end())
+                return;
+            it->second.firstPass = std::min(it->second.firstPass, i);
+            it->second.lastPass = std::max(it->second.lastPass, i);
+        };
+
+        for (auto &r : pass.imageReads)
+            update(r.name);
+        for (auto &w : pass.imageWrites)
+            update(w.name);
+        for (auto &c : pass.colorAttachments)
+        {
+            update(c.name);
+            if (c.bResolve)
+                update(c.resolveName);
+        }
+        if (!pass.depthAttachment.name.empty())
+            update(pass.depthAttachment.name);
+    }
+}
+
+void rgraph::Rendergraph::destroyTransientImages()
+{
+    VmaAllocator vmaAllocator = GPUResourceAllocator::Instance().getAllocator();
+
+    for (auto &[name, _] : declaredImages)
+    {
+        auto it = images.find(name);
+        if (it == images.end())
+            continue;
+        AllocatedImage &img = it->second;
+        if (img.imageView != VK_NULL_HANDLE)
+            vkDestroyImageView(_device, img.imageView, nullptr);
+        // Images created via vmaCreateAliasingImage are destroyed with vkDestroyImage;
+        // the backing memory belongs to the pool, not the image.
+        if (img.image != VK_NULL_HANDLE)
+            vkDestroyImage(_device, img.image, nullptr);
+        images.erase(it);
+    }
+    for (auto &pool : aliasPools)
+        vmaFreeMemory(vmaAllocator, pool.allocation);
+    aliasPools.clear();
+}
+
+void rgraph::Rendergraph::allocateTransientImages()
+{
+    VmaAllocator vmaAllocator = GPUResourceAllocator::Instance().getAllocator();
+
+    // Collect images that have a valid (referenced) lifetime, sorted by firstPass so
+    // the greedy algorithm assigns the earliest-starting images first.
+    std::vector<std::string> sorted;
+    sorted.reserve(declaredImages.size());
+    for (auto &[name, _] : declaredImages)
+    {
+        if (resourceLifetimes[name].valid())
+            sorted.push_back(name);
+    }
+    std::sort(sorted.begin(), sorted.end(),
+              [&](const std::string &a, const std::string &b)
+              { return resourceLifetimes[a].firstPass < resourceLifetimes[b].firstPass; });
+
+    for (auto &name : sorted)
+    {
+        const ImageDecl &decl = declaredImages[name];
+        const ResourceLifetime &lifetime = resourceLifetimes[name];
+
+        // VK_IMAGE_CREATE_ALIAS_BIT is required on every image that may share memory
+        // with another image
+        VkImageCreateInfo imgInfo = vkinit::image_create_info(decl.format, decl.usage, decl.extent);
+        imgInfo.flags |= VK_IMAGE_CREATE_ALIAS_BIT;
+
+        // Create a probe image (not yet bound to any memory) purely to query requirements.
+        VkImage probeImage;
+        VK_CHECK(vkCreateImage(_device, &imgInfo, nullptr, &probeImage));
+        VkMemoryRequirements memReqs;
+        vkGetImageMemoryRequirements(_device, probeImage, &memReqs);
+
+        // Greedy search: find a pool that is free at firstPass and large enough.
+        AliasPool *chosen = nullptr;
+        for (auto &pool : aliasPools)
+        {
+            bool isFree = pool.releaseAfterPass < lifetime.firstPass;
+            bool fitsSize = pool.size >= memReqs.size;
+            bool compatibleType = (pool.memoryTypeBit & memReqs.memoryTypeBits) != 0;
+            if (isFree && fitsSize && compatibleType)
+            {
+                chosen = &pool;
+                break;
+            }
+        }
+
+        VkImage image;
+        if (chosen)
+        {
+            // Alias into an existing pool: probe is no longer needed.
+            vkDestroyImage(_device, probeImage, nullptr);
+            VK_CHECK(vmaCreateAliasingImage(vmaAllocator, chosen->allocation, &imgInfo, &image));
+            chosen->releaseAfterPass = lifetime.lastPass;
+        }
+        else
+        {
+            // No compatible free pool — allocate a new VmaAllocation sized for this image,
+            // then alias the real image into it and discard the probe.
+            VmaAllocationCreateInfo allocCI = {};
+            allocCI.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+            allocCI.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+            VmaAllocation newAlloc;
+            VmaAllocationInfo allocInfo;
+            VK_CHECK(vmaAllocateMemoryForImage(vmaAllocator, probeImage, &allocCI, &newAlloc, &allocInfo));
+
+            vkDestroyImage(_device, probeImage, nullptr);
+            VK_CHECK(vmaCreateAliasingImage(vmaAllocator, newAlloc, &imgInfo, &image));
+
+            aliasPools.push_back({newAlloc, memReqs.size, 1u << allocInfo.memoryType, lifetime.lastPass});
+        }
+
+        VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        if (decl.format == VK_FORMAT_D32_SFLOAT || decl.format == VK_FORMAT_D24_UNORM_S8_UINT ||
+            decl.format == VK_FORMAT_D16_UNORM || decl.format == VK_FORMAT_D32_SFLOAT_S8_UINT)
+        {
+            aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+        }
+
+        VkImageViewCreateInfo viewInfo = vkinit::imageview_create_info(decl.format, image, aspect);
+        VkImageView imageView;
+        VK_CHECK(vkCreateImageView(_device, &viewInfo, nullptr, &imageView));
+
+        AllocatedImage allocImg = {};
+        allocImg.image = image;
+        allocImg.imageView = imageView;
+        allocImg.allocation = VK_NULL_HANDLE; // memory is owned by the AliasPool, not this image
+        allocImg.imageExtent = decl.extent;
+        allocImg.imageFormat = decl.format;
+
+        images[name] = allocImg;
+    }
+}
+
+void rgraph::Rendergraph::Cleanup()
+{
+    destroyTransientImages();
+    transientImagesAllocated = false;
+}
+
+// ---------------------------------------------------------------------------
+
 void rgraph::Rendergraph::Build(FrameData &frameData)
 {
     transitionData.clear();
@@ -128,6 +301,18 @@ void rgraph::Rendergraph::Build(FrameData &frameData)
     }
 
     // all the AddXPass would be called above.
+
+    // Compute per-resource lifetimes from the just-populated passData.
+    // Allocate transient images (with memory aliasing) on the first Build only.
+    if (!declaredImages.empty())
+    {
+        computeResourceLifetimes();
+        if (!transientImagesAllocated)
+        {
+            allocateTransientImages();
+            transientImagesAllocated = true;
+        }
+    }
 
     std::unordered_map<std::string, VkImageLayout> imgLayoutMap;
 

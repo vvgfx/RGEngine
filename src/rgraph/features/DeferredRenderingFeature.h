@@ -38,20 +38,12 @@ namespace rgraph
 
         void createPipelines(MaterialSystemCreateInfo &materialSystemCreateInfo);
 
-        void createImages(DeletionQueue &delQueue);
         // execution lambdas for run.
         void geometryPass(PassExecution &passExec);
 
         void compositePass(PassExecution &passExec);
 
         void transparentPass(PassExecution &passExec);
-
-        // images
-        AllocatedImage position_gbuf;
-        AllocatedImage normal_gbuf;
-        AllocatedImage albedo_gbuf;
-        AllocatedImage metalrough_gbuf;
-        AllocatedImage depth_gbuf;
 
         VkDescriptorSetLayout _gpuSceneDataDescriptorLayout;
         VkDescriptorSetLayout lightDescriptorSetLayout;

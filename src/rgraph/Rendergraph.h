@@ -2,6 +2,7 @@
 #include "vk_engine.h"
 #include "vk_images.h"
 #include "vk_types.h"
+#include <climits>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -122,6 +123,29 @@ namespace rgraph
         uint32_t barrierCount = 0;
     };
 
+    // Description of a transient image to be allocated with memory aliasing.
+    struct ImageDecl
+    {
+        VkExtent3D extent;
+        VkFormat format;
+        VkImageUsageFlags usage;
+    };
+
+    // First and last pass index (inclusive) in which a resource is accessed.
+    struct ResourceLifetime
+    {
+        int firstPass = INT_MAX;
+        int lastPass = -1;
+
+        bool valid() const { return lastPass >= 0; }
+
+        // Two lifetimes overlap when either starts before the other ends.
+        bool overlaps(const ResourceLifetime &other) const
+        {
+            return firstPass <= other.lastPass && other.firstPass <= lastPass;
+        }
+    };
+
     /**
      * @brief This class builds the rendergraph, and is expected to be called every frame.
      *
@@ -136,6 +160,10 @@ namespace rgraph
         void AddTrackedImage(const std::string name, VkImageLayout startLayout, AllocatedImage image);
         void AddTrackedBuffer(const std::string name, AllocatedBuffer buffer);
 
+        // Declare a transient image that the rendergraph owns and will allocate with memory aliasing.
+        // Call this once per image (e.g. in feature constructors) before the first Build().
+        void DeclareTransientImage(const std::string &name, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage);
+
         void Build(FrameData &frameData);
 
         // the framedata is used for per-frame deletion queue and unique command buffers.
@@ -144,6 +172,9 @@ namespace rgraph
         void AddFeature(std::weak_ptr<IFeature> feature);
 
         void Init(VkDevice _device, VkExtent3D _extent, VkInstance _instance);
+
+        // Destroy all transient images and free aliased memory. Call once at shutdown.
+        void Cleanup();
 
         // performance stuff.
         void SetTimestampPeriod(float period)
@@ -192,5 +223,32 @@ namespace rgraph
 
         PFN_vkCmdBeginDebugUtilsLabelEXT vkCmdBeginDebugUtilsLabelEXT = nullptr;
         PFN_vkCmdEndDebugUtilsLabelEXT vkCmdEndDebugUtilsLabelEXT = nullptr;
+
+        // ---- Memory aliasing ----
+
+        // A single VMA allocation that may be shared by multiple non-overlapping transient images.
+        struct AliasPool
+        {
+            VmaAllocation allocation;
+            VkDeviceSize size;
+            uint32_t memoryTypeBit; // (1u << memoryType) for compatibility checks
+            int releaseAfterPass;   // last pass of the current owner; -1 when never assigned
+        };
+
+        std::unordered_map<std::string, ImageDecl> declaredImages;
+        std::unordered_map<std::string, ResourceLifetime> resourceLifetimes;
+        std::vector<AliasPool> aliasPools;
+        bool transientImagesAllocated = false;
+
+        // Scan passData to fill resourceLifetimes for every declared image.
+        void computeResourceLifetimes();
+
+        // Greedy interval-based allocator: assigns each declared image to an alias pool
+        // and binds the VkImage to its pool's VkDeviceMemory, then inserts the result
+        // into the images map so the rest of the graph sees it like any other image.
+        void allocateTransientImages();
+
+        // Destroy VkImages / VkImageViews owned by the aliasing system and free all pools.
+        void destroyTransientImages();
     };
 } // namespace rgraph

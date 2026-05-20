@@ -1,6 +1,5 @@
 #include "rgraph/features/DeferredRenderingFeature.h"
 #include "DeferredRenderingFeature.h"
-#include "GPUResourceAllocator.h"
 #include "rgraph/Rendergraph.h"
 #include "vk_engine.h"
 #include "vk_initializers.h"
@@ -44,8 +43,20 @@ rgraph::DeferredRenderingFeature::DeferredRenderingFeature(DrawContext &drawCont
         compDescriptorSetLayout = layoutBuilder.build(_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
     }
 
-    // create images here and add them to be tracked.
-    createImages(delQueue);
+    // Declare the G-buffer images as transient resources owned by the rendergraph.
+    // The rendergraph's Build() will allocate them with memory aliasing on the first frame.
+    auto windowExtent = VulkanEngine::Instance().GetWindowExtent();
+    VkExtent3D imageExtent = {windowExtent.width, windowExtent.height, 1};
+
+    VkImageUsageFlags colorUse = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    VkImageUsageFlags depthUse = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+
+    Rendergraph &rg = Rendergraph::Instance();
+    rg.DeclareTransientImage("position_gbuf", imageExtent, VK_FORMAT_R16G16B16A16_SFLOAT, colorUse);
+    rg.DeclareTransientImage("normal_gbuf", imageExtent, VK_FORMAT_R16G16B16A16_SFLOAT, colorUse);
+    rg.DeclareTransientImage("albedo_gbuf", imageExtent, VK_FORMAT_R16G16B16A16_SFLOAT, colorUse);
+    rg.DeclareTransientImage("metalrough_gbuf", imageExtent, VK_FORMAT_R16G16B16A16_SFLOAT, colorUse);
+    rg.DeclareTransientImage("depth_gbuf", imageExtent, VK_FORMAT_D32_SFLOAT, depthUse);
 
     createPipelines(materialSystemCreateInfo);
 
@@ -242,18 +253,18 @@ void rgraph::DeferredRenderingFeature::compositePass(rgraph::PassExecution &pass
         writer.update_set(passExec._device, lightDescriptor);
     }
 
-    // G-buffer sampler descriptors
+    // G-buffer sampler descriptors — read image views from the rendergraph's image table.
     VkDescriptorSet compDescriptor = passExec.frameDescriptor->allocate(passExec._device, compDescriptorSetLayout);
     {
         DescriptorWriter writer;
-        writer.write_image(0, position_gbuf.imageView, defaultSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                           VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-        writer.write_image(1, normal_gbuf.imageView, defaultSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                           VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-        writer.write_image(2, albedo_gbuf.imageView, defaultSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                           VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-        writer.write_image(3, metalrough_gbuf.imageView, defaultSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                           VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        writer.write_image(0, passExec.allocatedImages.at("position_gbuf").imageView, defaultSampler,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        writer.write_image(1, passExec.allocatedImages.at("normal_gbuf").imageView, defaultSampler,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        writer.write_image(2, passExec.allocatedImages.at("albedo_gbuf").imageView, defaultSampler,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        writer.write_image(3, passExec.allocatedImages.at("metalrough_gbuf").imageView, defaultSampler,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
         writer.update_set(passExec._device, compDescriptor);
     }
 
@@ -526,80 +537,3 @@ void rgraph::DeferredRenderingFeature::createPipelines(MaterialSystemCreateInfo 
     vkDestroyShaderModule(materialSystemCreateInfo._device, meshFragShader, nullptr);
 }
 
-void rgraph::DeferredRenderingFeature::createImages(DeletionQueue &delQueue)
-{
-    auto windowExtent = VulkanEngine::Instance().GetWindowExtent();
-    auto device = VulkanEngine::Instance().GetVkDevice();
-    VkExtent3D imageExtent = {windowExtent.width, windowExtent.height, 1};
-
-    std::vector<AllocatedImage *> gbufImages = {&position_gbuf, &normal_gbuf, &albedo_gbuf, &metalrough_gbuf};
-    std::vector<std::string> gbufNames = {"position_gbuf", "normal_gbuf", "albedo_gbuf", "metalrough_gbuf"};
-
-    Rendergraph &rgraphInstance = Rendergraph::Instance();
-
-    // create the color attachments
-    for (int i = 0; i < gbufImages.size(); i++)
-    {
-        auto &gbufImage = gbufImages[i];
-        gbufImage->imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
-        gbufImage->imageExtent = imageExtent;
-
-        VkImageUsageFlags colorImageUses{};
-        colorImageUses |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        colorImageUses |= VK_IMAGE_USAGE_SAMPLED_BIT;
-
-        VkImageCreateInfo rimg_info = vkinit::image_create_info(gbufImage->imageFormat, colorImageUses, imageExtent);
-
-        VmaAllocationCreateInfo rimg_allocinfo = {};
-        rimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-        rimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-        GPUResourceAllocator &_gpuResourceAllocator = GPUResourceAllocator::Instance();
-        _gpuResourceAllocator.create_image(&rimg_info, &rimg_allocinfo, &gbufImage->image, &gbufImage->allocation, nullptr);
-
-        VkImageViewCreateInfo rview_info = vkinit::imageview_create_info(gbufImage->imageFormat, gbufImage->image, VK_IMAGE_ASPECT_COLOR_BIT);
-
-        VK_CHECK(vkCreateImageView(device, &rview_info, nullptr, &gbufImage->imageView));
-
-        rgraphInstance.AddTrackedImage(gbufNames[i], VK_IMAGE_LAYOUT_UNDEFINED, *gbufImage);
-
-        delQueue.push_function(
-            [=, this]
-            {
-                auto &_gpuResourceAllocator = GPUResourceAllocator::Instance();
-                vkDestroyImageView(device, gbufImage->imageView, nullptr);
-                _gpuResourceAllocator.destroy_image(gbufImage->image, gbufImage->allocation);
-            });
-    }
-
-    // create the depth-stencil attachment
-
-    depth_gbuf.imageFormat = VK_FORMAT_D32_SFLOAT;
-    depth_gbuf.imageExtent = imageExtent;
-    VkImageUsageFlags depthImageUsages{};
-    depthImageUsages |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-
-    VkImageCreateInfo dimg_info = vkinit::image_create_info(depth_gbuf.imageFormat, depthImageUsages, imageExtent);
-
-    VmaAllocationCreateInfo rimg_allocinfo = {};
-    rimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-    rimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    // allocate and create the image
-    GPUResourceAllocator::Instance().create_image(&dimg_info, &rimg_allocinfo, &depth_gbuf.image, &depth_gbuf.allocation, nullptr);
-
-    // build a image-view for the depth image to use for rendering
-    VkImageViewCreateInfo dview_info = vkinit::imageview_create_info(depth_gbuf.imageFormat, depth_gbuf.image, VK_IMAGE_ASPECT_DEPTH_BIT);
-
-    VK_CHECK(vkCreateImageView(device, &dview_info, nullptr, &depth_gbuf.imageView));
-
-    rgraphInstance.AddTrackedImage("depth_gbuf", VK_IMAGE_LAYOUT_UNDEFINED, depth_gbuf);
-
-    delQueue.push_function(
-        [=, this]
-        {
-            auto &_gpuResourceAllocator = GPUResourceAllocator::Instance();
-            vkDestroyImageView(device, depth_gbuf.imageView, nullptr);
-            _gpuResourceAllocator.destroy_image(depth_gbuf.image, depth_gbuf.allocation);
-        });
-}

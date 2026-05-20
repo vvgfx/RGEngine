@@ -209,6 +209,18 @@ VkDevice GPUResourceAllocator::getDevice()
     return _device;
 }
 
+VkPhysicalDevice GPUResourceAllocator::getPhysicalDevice() const
+{
+    VmaAllocatorInfo info;
+    vmaGetAllocatorInfo(_allocator, &info);
+    return info.physicalDevice;
+}
+
+VmaAllocator GPUResourceAllocator::getAllocator() const
+{
+    return _allocator;
+}
+
 void GPUResourceAllocator::create_image(VkImageCreateInfo *pImageCreateInfo, VmaAllocationCreateInfo *pAllocationCreateInfo, VkImage *pImage,
                                         VmaAllocation *pAllocation, VmaAllocationInfo *pAllocationInfo)
 {
