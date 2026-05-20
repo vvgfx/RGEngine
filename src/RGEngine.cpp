@@ -4,6 +4,7 @@
 #include "rgraph/features/ComputeBackgroundFeature.h"
 #include "rgraph/features/DeferredRenderingFeature.h"
 #include "rgraph/features/PBRShadingFeature.h"
+#include "rgraph/features/SMAAFeature.h"
 #include "vk_engine.h"
 #include "vk_images.h"
 #include "vk_initializers.h"
@@ -50,15 +51,21 @@ void RGEngine::init()
                                                                          msCreateInfo, _mainDeletionQueue);
     // create MSAA images. TODO: move these out somewhere later.
     createMsaaImages();
+    createSmaaOutput();
+
+    VkExtent3D extent3D = {_windowExtent.width, _windowExtent.height, 1};
+    smaaFeature = std::make_shared<rgraph::SMAAFeature>(_device, extent3D, _mainDeletionQueue);
 
     builder.AddTrackedImage("drawImage", VK_IMAGE_LAYOUT_UNDEFINED, _drawImage);
     builder.AddTrackedImage("depthImage", VK_IMAGE_LAYOUT_UNDEFINED, _depthImage);
     builder.AddTrackedImage("msaaColor", VK_IMAGE_LAYOUT_UNDEFINED, msaaColor);
     builder.AddTrackedImage("msaaDepth", VK_IMAGE_LAYOUT_UNDEFINED, msaaDepth);
+    builder.AddTrackedImage("smaaOutput", VK_IMAGE_LAYOUT_UNDEFINED, smaaOutput);
 
     builder.AddFeature(computeFeature);
     // builder.AddFeature(PBRFeature);
     builder.AddFeature(deferredFeature);
+    builder.AddFeature(smaaFeature);
 
     builder.SetTimestampPeriod(timestampPeriod);
 }
@@ -176,6 +183,23 @@ void RGEngine::createMsaaImages()
         });
 }
 
+void RGEngine::createSmaaOutput()
+{
+    VkExtent3D imageExtent = {_windowExtent.width, _windowExtent.height, 1};
+
+    VkImageUsageFlags usages =
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+
+    GPUResourceAllocator &gpuAlloc = GPUResourceAllocator::Instance();
+    smaaOutput = gpuAlloc.create_image(imageExtent, VK_FORMAT_R16G16B16A16_SFLOAT, usages);
+
+    _mainDeletionQueue.push_function(
+        [this]()
+        {
+            GPUResourceAllocator::Instance().destroy_image(smaaOutput);
+        });
+}
+
 void RGEngine::draw()
 {
     update_scene();
@@ -211,12 +235,12 @@ void RGEngine::draw()
 
     VkCommandBuffer cmd = get_current_frame()._mainCommandBuffer;
 
-    // transition the draw image and the swapchain image into their correct transfer layouts
-    vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    // SMAA neighborhood blend leaves smaaOutput in COLOR_ATTACHMENT_OPTIMAL; transition to blit source.
+    vkutil::transition_image(cmd, smaaOutput.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    // execute a copy from the draw image into the swapchain
-    vkutil::copy_image_to_image(cmd, _drawImage.image, _swapchainImages[swapchainImageIndex], _drawExtent, _swapchainExtent);
+    // Blit the SMAA-resolved image to the swapchain.
+    vkutil::copy_image_to_image(cmd, smaaOutput.image, _swapchainImages[swapchainImageIndex], _drawExtent, _swapchainExtent);
 
     // set swapchain image layout to Attachment Optimal so we can draw it
     vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,

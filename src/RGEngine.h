@@ -4,6 +4,7 @@
 #include "rgraph/features/ComputeBackgroundFeature.h"
 #include "rgraph/features/DeferredRenderingFeature.h"
 #include "rgraph/features/PBRShadingFeature.h"
+#include "rgraph/features/SMAAFeature.h"
 #include <memory>
 #include <vk_descriptors.h>
 #include <vk_engine.h>
@@ -35,12 +36,17 @@ class RGEngine : public VulkanEngine
     std::shared_ptr<rgraph::ComputeBackgroundFeature> computeFeature;
     std::shared_ptr<rgraph::PBRShadingFeature> PBRFeature;
     std::shared_ptr<rgraph::DeferredRenderingFeature> deferredFeature;
+    std::shared_ptr<rgraph::SMAAFeature> smaaFeature;
 
     // AllocatedImages for MSAA. TODO: Move these out later.
     AllocatedImage msaaColor;
     AllocatedImage msaaDepth;
 
+    // Final antialiased output, blitted to swapchain.
+    AllocatedImage smaaOutput;
+
     void testRendergraph();
 
     void createMsaaImages();
+    void createSmaaOutput();
 };

@@ -35,6 +35,8 @@ add_executable (engine
   rgraph/features/ComputeBackgroundFeature.cpp
   rgraph/features/DeferredRenderingFeature.h
   rgraph/features/DeferredRenderingFeature.cpp
+  rgraph/features/SMAAFeature.h
+  rgraph/features/SMAAFeature.cpp
   MaterialSystem.h
   MaterialSystem.cpp
 )

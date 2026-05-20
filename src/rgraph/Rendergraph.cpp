@@ -1,5 +1,6 @@
 #include "Rendergraph.h"
 #include "GPUResourceAllocator.h"
+#include <fmt/core.h>
 #include "IFeature.h"
 #include "vk_engine.h"
 #include "vk_images.h"
@@ -102,7 +103,9 @@ void rgraph::Rendergraph::AddGraphicsPass(const std::string name, std::function<
 
 void rgraph::Rendergraph::AddTrackedImage(const std::string name, VkImageLayout startLayout, AllocatedImage image)
 {
-    // I dont know why the startLayout is required, so ignoring it for now.
+    if (name.empty()) {
+        fmt::println("AddTrackedImage called with empty name, image={}", (void*)image.image);
+    }
     images[name] = image;
 }
 
@@ -187,7 +190,7 @@ void rgraph::Rendergraph::Build(FrameData &frameData)
 
         // similarly, now do the same for depth image. Don't need a loop because the depth image will always be
         // singular.
-        if (imgLayoutMap.contains(pass.depthAttachment.name) && imgLayoutMap[pass.depthAttachment.name] != VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
+        if (!pass.depthAttachment.name.empty() && imgLayoutMap.contains(pass.depthAttachment.name) && imgLayoutMap[pass.depthAttachment.name] != VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
         {
             // transition data.
             transitionData[pass.name].push_back(
@@ -253,6 +256,9 @@ void rgraph::Rendergraph::Run(FrameData &frameData)
             for (const auto &transition : transitionsIt->second)
             {
                 AllocatedImage img = images[transition.imageName];
+                if (!img.image) {
+                    fmt::println("NULL image '{}' in pass '{}'", transition.imageName, pass.name);
+                }
                 barrierMerger.transition_image(img.image, transition.currentLayout, transition.newLayout);
             }
         }
