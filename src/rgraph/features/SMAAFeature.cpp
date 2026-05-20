@@ -5,7 +5,6 @@
 #include "vk_images.h"
 #include "vk_initializers.h"
 #include "vk_pipelines.h"
-#include <vulkan/vulkan_core.h>
 
 // These headers contain the raw byte arrays for the SMAA area and search LUTs.
 // Include in exactly one .cpp file.

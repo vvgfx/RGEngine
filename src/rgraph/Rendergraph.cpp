@@ -1,6 +1,5 @@
 #include "Rendergraph.h"
 #include "GPUResourceAllocator.h"
-#include <fmt/core.h>
 #include "IFeature.h"
 #include "vk_engine.h"
 #include "vk_images.h"
@@ -103,9 +102,6 @@ void rgraph::Rendergraph::AddGraphicsPass(const std::string name, std::function<
 
 void rgraph::Rendergraph::AddTrackedImage(const std::string name, VkImageLayout startLayout, AllocatedImage image)
 {
-    if (name.empty()) {
-        fmt::println("AddTrackedImage called with empty name, image={}", (void*)image.image);
-    }
     images[name] = image;
 }
 
@@ -256,9 +252,6 @@ void rgraph::Rendergraph::Run(FrameData &frameData)
             for (const auto &transition : transitionsIt->second)
             {
                 AllocatedImage img = images[transition.imageName];
-                if (!img.image) {
-                    fmt::println("NULL image '{}' in pass '{}'", transition.imageName, pass.name);
-                }
                 barrierMerger.transition_image(img.image, transition.currentLayout, transition.newLayout);
             }
         }
