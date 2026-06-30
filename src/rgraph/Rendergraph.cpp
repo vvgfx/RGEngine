@@ -14,41 +14,41 @@
 
 rgraph::Rendergraph *rgraph::Rendergraph::instance = nullptr;
 
-void rgraph::Pass::ReadsImage(const std::string name, VkImageLayout layout)
+void rgraph::Pass::ReadsImage(std::string name, VkImageLayout layout)
 {
     PassImageRead imageRead = {};
-    imageRead.name = name;
+    imageRead.name = std::move(name);
     imageRead.startingLayout = layout;
 
     imageReads.emplace_back(std::move(imageRead));
 }
 
-void rgraph::Pass::WritesImage(const std::string name)
+void rgraph::Pass::WritesImage(std::string name)
 {
     PassImageWrite imageWrite = {};
-    imageWrite.name = name;
+    imageWrite.name = std::move(name);
 
     imageWrites.emplace_back(std::move(imageWrite));
 }
 
-void rgraph::Pass::AddColorAttachment(const std::string name, bool store, VkClearValue *clear)
+void rgraph::Pass::AddColorAttachment(std::string name, bool store, VkClearValue *clear)
 {
     PassImageWrite imageWrite = {};
     imageWrite.clear = clear;
     imageWrite.store = store;
-    imageWrite.name = name;
+    imageWrite.name = std::move(name);
 
     colorAttachments.emplace_back(std::move(imageWrite));
 }
 
-void rgraph::Pass::AddColorAttachment(const std::string name, bool store, VkClearValue *clear, std::string resolveName,
+void rgraph::Pass::AddColorAttachment(std::string name, bool store, VkClearValue *clear, std::string resolveName,
                                       VkResolveModeFlagBits colorResolutionMode)
 {
     // if store, write to color attachment, and if clearvalue is null, do not clear the value beforehand.
     PassImageWrite imageWrite = {};
     imageWrite.clear = clear;
     imageWrite.store = store;
-    imageWrite.name = name;
+    imageWrite.name = std::move(name);
 
     imageWrite.bResolve = true;
     imageWrite.resolveName = resolveName;
@@ -57,30 +57,30 @@ void rgraph::Pass::AddColorAttachment(const std::string name, bool store, VkClea
     colorAttachments.emplace_back(std::move(imageWrite));
 }
 
-void rgraph::Pass::AddDepthStencilAttachment(const std::string name, bool store, VkClearValue *clear)
+void rgraph::Pass::AddDepthStencilAttachment(std::string name, bool store, VkClearValue *clear)
 {
     depthAttachment.clear = clear;
     depthAttachment.store = store;
-    depthAttachment.name = name;
+    depthAttachment.name = std::move(name);
 }
 
-void rgraph::Pass::AddDepthStencilAttachment(const std::string name, bool store, VkClearValue *clear, std::string resolveName,
+void rgraph::Pass::AddDepthStencilAttachment(std::string name, bool store, VkClearValue *clear, std::string resolveName,
                                              VkResolveModeFlagBits depthResolutionMode)
 {
     depthAttachment.clear = clear;
     depthAttachment.store = store;
-    depthAttachment.name = name;
+    depthAttachment.name = std::move(name);
 
     depthAttachment.bResolve = true;
     depthAttachment.resolveName = resolveName;
     depthAttachment.resolutionMode = depthResolutionMode;
 }
 
-void rgraph::Rendergraph::AddComputePass(const std::string name, std::function<void(Pass &)> setup, std::function<void(PassExecution &)> run)
+void rgraph::Rendergraph::AddComputePass(std::string name, std::function<void(Pass &)> setup, std::function<void(PassExecution &)> run)
 {
     rgraph::Pass pass;
     pass.type = PassType::Compute;
-    pass.name = name;
+    pass.name = std::move(name);
     setup(pass);
 
     passData.emplace_back(std::move(pass));
@@ -88,16 +88,16 @@ void rgraph::Rendergraph::AddComputePass(const std::string name, std::function<v
     executionLambdas.emplace_back(std::move(run));
 }
 
-void rgraph::Rendergraph::AddGraphicsPass(const std::string name, std::function<void(Pass &)> setup, std::function<void(PassExecution &)> run)
+void rgraph::Rendergraph::AddGraphicsPass(std::string name, std::function<void(Pass &)> setup, std::function<void(PassExecution &)> run)
 {
     rgraph::Pass pass;
     pass.type = PassType::Graphics;
-    pass.name = name;
+    pass.name = std::move(name);
     setup(pass);
 
     passData.emplace_back(std::move(pass));
 
-    executionLambdas.emplace_back(run);
+    executionLambdas.emplace_back(std::move(run));
 }
 
 void rgraph::Rendergraph::AddTrackedImage(const std::string name, VkImageLayout startLayout, AllocatedImage image)
@@ -375,7 +375,7 @@ void rgraph::Rendergraph::Run(FrameData &frameData)
 
 void rgraph::Rendergraph::AddFeature(std::weak_ptr<IFeature> feature)
 {
-    features.emplace_back(feature);
+    features.emplace_back(std::move(feature));
 }
 
 void rgraph::Rendergraph::Init(VkDevice _device, VkExtent3D _extent, VkInstance _instance)
@@ -401,14 +401,14 @@ rgraph::Rendergraph &rgraph::Rendergraph::Instance()
     throw(true && "Rendergraph has not been initialized yet!");
 }
 
-void rgraph::Pass::CreatesBuffer(const std::string name, size_t size, VkBufferUsageFlags usages)
+void rgraph::Pass::CreatesBuffer(std::string name, size_t size, VkBufferUsageFlags usages)
 {
     PassBufferCreationInfo bufferCreateInfo = {};
-    bufferCreateInfo.name = name;
+    bufferCreateInfo.name = std::move(name);
     bufferCreateInfo.size = size;
     bufferCreateInfo.usageFlags = usages;
 
-    bufferCreations.emplace_back(bufferCreateInfo);
+    bufferCreations.emplace_back(std::move(bufferCreateInfo));
 }
 
 void rgraph::Pass::ReadsBuffer(const std::string name)

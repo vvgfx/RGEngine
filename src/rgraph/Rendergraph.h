@@ -50,24 +50,24 @@ namespace rgraph
         friend class Rendergraph;
 
         // these are for compute.
-        void ReadsImage(const std::string name, VkImageLayout layout);
-        void WritesImage(const std::string name);
+        void ReadsImage(std::string name, VkImageLayout layout);
+        void WritesImage(std::string name);
 
         // these are for graphics.
-        void AddColorAttachment(const std::string name, bool store, VkClearValue *clear = nullptr);
+        void AddColorAttachment(std::string name, bool store, VkClearValue *clear = nullptr);
 
         // default colorResolutionMode = VK_RESOLVE_MODE_AVERAGE_BIT. Pass nullptr to clear to keep value.
-        void AddColorAttachment(const std::string name, bool store, VkClearValue *clear, std::string resolveName,
+        void AddColorAttachment(std::string name, bool store, VkClearValue *clear, std::string resolveName,
                                 VkResolveModeFlagBits colorResolutionMode = VK_RESOLVE_MODE_AVERAGE_BIT);
 
-        void AddDepthStencilAttachment(const std::string name, bool store, VkClearValue *clear = nullptr);
+        void AddDepthStencilAttachment(std::string name, bool store, VkClearValue *clear = nullptr);
 
         // default depthResolutionMode = VK_RESOLVE_MODE_MAX_BIT (using reverse-z, so MAX, not MIN). Pass nullptr to
         // clear to keep value.
-        void AddDepthStencilAttachment(const std::string name, bool store, VkClearValue *clear, std::string resolveName,
+        void AddDepthStencilAttachment(std::string name, bool store, VkClearValue *clear, std::string resolveName,
                                        VkResolveModeFlagBits depthResolutionMode = VK_RESOLVE_MODE_MAX_BIT);
 
-        void CreatesBuffer(const std::string name, size_t size, VkBufferUsageFlags usages);
+        void CreatesBuffer(std::string name, size_t size, VkBufferUsageFlags usages);
 
         void ReadsBuffer(const std::string name);
         void WritesBuffer(const std::string name);
@@ -130,8 +130,8 @@ namespace rgraph
     {
 
       public:
-        void AddComputePass(const std::string name, std::function<void(Pass &)> setup, std::function<void(PassExecution &)> run);
-        void AddGraphicsPass(const std::string name, std::function<void(Pass &)> setup, std::function<void(PassExecution &)> run);
+        void AddComputePass(std::string name, std::function<void(Pass &)> setup, std::function<void(PassExecution &)> run);
+        void AddGraphicsPass(std::string name, std::function<void(Pass &)> setup, std::function<void(PassExecution &)> run);
 
         void AddTrackedImage(const std::string name, VkImageLayout startLayout, AllocatedImage image);
         void AddTrackedBuffer(const std::string name, AllocatedBuffer buffer);
