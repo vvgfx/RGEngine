@@ -40,7 +40,5 @@ class RGEngine : public VulkanEngine
     AllocatedImage msaaColor;
     AllocatedImage msaaDepth;
 
-    void testRendergraph();
-
     void createMsaaImages();
 };

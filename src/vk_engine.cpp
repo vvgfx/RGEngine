@@ -29,6 +29,14 @@
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_vulkan.h"
 
+// if no-debug is not defined, we are in debug mode.
+#ifndef NDEBUG
+constexpr bool enableValidation = true;
+#else
+// else we are in release mode.
+constexpr bool enableValidation = false;
+#endif
+
 VulkanEngine *VulkanEngine::loadedEngine = nullptr;
 
 // forward declaration - this is present in Scenegraphs.cpp
@@ -84,8 +92,11 @@ void VulkanEngine::init_vulkan()
 {
     vkb::InstanceBuilder builder;
 
-    auto instRet =
-        builder.set_app_name("Vulkan Engine").request_validation_layers(true).use_default_debug_messenger().require_api_version(1, 3, 0).build();
+    auto instRet = builder.set_app_name("Vulkan Engine")
+                       .request_validation_layers(enableValidation)
+                       .use_default_debug_messenger()
+                       .require_api_version(1, 3, 0)
+                       .build();
 
     vkb::Instance vkbInst = instRet.value();
     _instance = vkbInst.instance;
