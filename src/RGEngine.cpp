@@ -194,6 +194,7 @@ void RGEngine::draw()
     get_current_frame()._deletionQueue.flush();
     get_current_frame()._frameDescriptors.clear_pools(_device);
     uint32_t swapchainImageIndex;
+    // note that the _renderSemaphore will be signaled once the image is available
     VkResult e = vkAcquireNextImageKHR(_device, _swapchain, 1000000000, get_current_frame()._renderSemaphore, nullptr, &swapchainImageIndex);
     if (e == VK_ERROR_OUT_OF_DATE_KHR || e == VK_SUBOPTIMAL_KHR)
     {
@@ -206,7 +207,7 @@ void RGEngine::draw()
 
     VK_CHECK(vkResetFences(_device, 1, &get_current_frame()._renderFence));
 
-    builder.Build(get_current_frame());
+    builder.Build(get_current_frame()); // could potentially move this higher up to do some stuff before waiting on the current frame's fence?
     builder.Run(get_current_frame());
 
     VkCommandBuffer cmd = get_current_frame()._mainCommandBuffer;
@@ -235,10 +236,14 @@ void RGEngine::draw()
     // start submit queue -------------------------------------
     VkCommandBufferSubmitInfo cmdInfo = vkinit::command_buffer_submit_info(cmd);
 
+    // wait until the image has been acquired to start drawing to it.
     VkSemaphoreSubmitInfo waitInfo =
         vkinit::semaphore_submit_info(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, get_current_frame()._renderSemaphore);
+
+    // signal _presentSemaphore once the queue has completed (that means the frame is ready to be presented)
     VkSemaphoreSubmitInfo signalInfo =
         vkinit::semaphore_submit_info(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, swapchainSyncStructures[swapchainImageIndex]._presentSemaphore);
+
     VkSubmitInfo2 submit = vkinit::submit_info(&cmdInfo, &signalInfo, &waitInfo);
     VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit, get_current_frame()._renderFence));
 
