@@ -10,6 +10,12 @@ add_subdirectory(fastgltf)
 add_subdirectory(fmt EXCLUDE_FROM_ALL)
 add_subdirectory(SDL EXCLUDE_FROM_ALL)
 
+# box3d: 3D physics engine (Erin Catto), MIT. Exposes target box3d::box3d.
+# Its samples/tests/benchmarks/docs are guarded behind PROJECT_IS_TOP_LEVEL,
+# so pulling it in as a subdirectory builds only the core lib (no sokol/imgui,
+# no network). Core lib has no deps beyond the C runtime + libm.
+add_subdirectory(box3d EXCLUDE_FROM_ALL)
+
 target_sources(vkbootstrap PRIVATE 
   vkbootstrap/VkBootstrap.h
   vkbootstrap/VkBootstrap.cpp
