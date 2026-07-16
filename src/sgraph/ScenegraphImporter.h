@@ -80,9 +80,7 @@ namespace sgraph
 
         virtual void parseAddChild(istream &input)
         {
-            // TODO: Come back to this and add proper structure to add children to all nodes.
-            // right now this works for all "Nodes", which are normal "groupNodes" and "lightNodes" since lightnodes
-            // current inherit from Node
+            // TODO: add children to all node types
             string childname, parentname;
 
             input >> childname >> parentname;
