@@ -10,7 +10,10 @@
 #include "vk_loader.h"
 #include "vk_types.h"
 #include <RGEngine.h>
+#include <algorithm>
 #include <chrono>
+#include <glm/gtx/quaternion.hpp>
+#include <glm/gtx/transform.hpp>
 #include <memory>
 #include <vulkan/vulkan_core.h>
 
@@ -37,6 +40,47 @@ void RGEngine::init()
     loadedScenes["outpost"] = *structureFile;
 
     structureFile.value()->name = "outpost";
+
+    // --- box3d physics demo setup ---
+    // Two cube meshes with different colors: orange falling body, teal ground slab.
+    auto cubeFile = loadGltf(creatorData, "../physics_models/box3d_cube.gltf");
+    assert(cubeFile.has_value());
+    loadedScenes["cube"] = *cubeFile;
+    cubeFile.value()->name = "cube";
+
+    auto groundFile = loadGltf(creatorData, "../physics_models/box3d_ground.gltf");
+    assert(groundFile.has_value());
+    loadedScenes["ground"] = *groundFile;
+    groundFile.value()->name = "ground";
+
+    // Physics world (default gravity {0,-10,0}).
+    b3WorldDef worldDef = b3DefaultWorldDef();
+    physicsWorld = b3CreateWorld(&worldDef);
+
+    // Static ground slab: center y=-1, half-extents (20,1,20) -> top surface at y=0.
+    b3BodyDef groundDef = b3DefaultBodyDef();
+    groundDef.position = b3Pos{0.0, -1.0, 0.0};
+    b3BodyId ground = b3CreateBody(physicsWorld, &groundDef);
+    b3BoxHull groundHull = b3MakeBoxHull(20.0f, 1.0f, 20.0f);
+    b3ShapeDef groundShape = b3DefaultShapeDef();
+    b3CreateHullShape(ground, &groundShape, &groundHull.base);
+
+    // Dynamic unit cube (half-extent 1, matches b3MakeCubeHull(1)) dropped from y=8.
+    b3BodyDef boxDef = b3DefaultBodyDef();
+    boxDef.type = b3_dynamicBody;
+    boxDef.position = b3Pos{0.0, 8.0, 0.0};
+    fallingBox = b3CreateBody(physicsWorld, &boxDef);
+    b3BoxHull cubeHull = b3MakeCubeHull(1.0f);
+    b3ShapeDef cubeShape = b3DefaultShapeDef();
+    cubeShape.density = 1.0f; // dynamic bodies need non-zero density
+    b3CreateHullShape(fallingBox, &cubeShape, &cubeHull.base);
+
+    // Frame the physics scene.
+    mainCamera.position = glm::vec3{0.f, 4.f, 25.f};
+    mainCamera.pitch = -0.15f;
+    mainCamera.yaw = 0.f;
+
+    lastPhysicsTime = std::chrono::steady_clock::now();
 
     builder.Init(_device, _drawImage.imageExtent, _instance);
 
@@ -102,6 +146,7 @@ void RGEngine::init_default_data()
 void RGEngine::cleanupOnChildren()
 {
 
+    b3DestroyWorld(physicsWorld);
     loadedScenes.clear();
     materialSystemInstance.clear_resources(_device);
 }
@@ -112,7 +157,42 @@ void RGEngine::update_scene()
 
     VulkanEngine::update_scene();
 
-    loadedScenes["outpost"]->Draw(glm::mat4{1.f}, mainDrawContext);
+    // --- box3d: advance the simulation with a fixed-timestep accumulator ---
+    auto now = std::chrono::steady_clock::now();
+    float frameDt = std::chrono::duration<float>(now - lastPhysicsTime).count();
+    lastPhysicsTime = now;
+    if (!physicsPaused)
+    {
+        physicsAccumulator = std::min(physicsAccumulator + frameDt, 0.25f); // clamp: anti spiral-of-death
+        const float fixedStep = 1.0f / 60.0f;
+        while (physicsAccumulator >= fixedStep)
+        {
+            b3World_Step(physicsWorld, fixedStep, 4);
+            physicsAccumulator -= fixedStep;
+        }
+    }
+
+    // Read the cube pose (position is b3Pos/double; rotation is b3Quat{ b3Vec3 v; float s; }).
+    b3Pos p = b3Body_GetPosition(fallingBox);
+    b3Quat r = b3Body_GetRotation(fallingBox);
+    glm::vec3 cubePos((float)p.x, (float)p.y, (float)p.z);
+    glm::quat cubeRot(r.s, r.v.x, r.v.y, r.v.z); // glm order is (w, x, y, z)
+
+    // Place each mesh via topMatrix (Scene::Draw bakes topMatrix * worldTransform).
+    glm::mat4 cubeM = glm::translate(glm::mat4(1.f), cubePos) * glm::toMat4(cubeRot);
+    glm::mat4 groundM =
+        glm::translate(glm::mat4(1.f), glm::vec3(0.f, -1.f, 0.f)) * glm::scale(glm::mat4(1.f), glm::vec3(20.f, 1.f, 20.f));
+    loadedScenes["cube"]->Draw(cubeM, mainDrawContext);
+    loadedScenes["ground"]->Draw(groundM, mainDrawContext);
+
+    // Standalone scene has no glTF lights, so supply one in code.
+    // (intensity must be large: attenuation is 1/dist^2; range must exceed distance or the shader culls it.)
+    GPULightingData light{};
+    light.transform = glm::translate(glm::mat4(1.f), glm::vec3(0.f, 15.f, 10.f));
+    light.color = glm::vec3(1.f, 1.f, 1.f);
+    light.intensity = 300.f;
+    light.range = 1000.f;
+    mainDrawContext.lights.push_back(light);
 
     auto end = std::chrono::system_clock::now();
 
@@ -336,6 +416,21 @@ void RGEngine::imGuiAddParams()
                 ImGui::Unindent();
             }
             ImGui::PopID();
+        }
+    }
+    ImGui::End();
+
+    if (ImGui::Begin("box3d Physics"))
+    {
+        b3Pos p = b3Body_GetPosition(fallingBox);
+        ImGui::Text("cube position: (%.2f, %.2f, %.2f)", (float)p.x, (float)p.y, (float)p.z);
+        ImGui::Checkbox("Pause", &physicsPaused);
+        if (ImGui::Button("Re-drop"))
+        {
+            b3Body_SetTransform(fallingBox, b3Pos{0.0, 8.0, 0.0}, b3Quat_identity);
+            b3Body_SetLinearVelocity(fallingBox, b3Vec3{0.f, 0.f, 0.f});
+            b3Body_SetAngularVelocity(fallingBox, b3Vec3{0.f, 0.f, 0.f});
+            b3Body_SetAwake(fallingBox, true);
         }
     }
     ImGui::End();
