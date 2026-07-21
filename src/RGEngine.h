@@ -4,6 +4,8 @@
 #include "rgraph/features/ComputeBackgroundFeature.h"
 #include "rgraph/features/DeferredRenderingFeature.h"
 #include "rgraph/features/PBRShadingFeature.h"
+#include <box3d/box3d.h>
+#include <chrono>
 #include <memory>
 #include <vk_descriptors.h>
 #include <vk_engine.h>
@@ -41,4 +43,11 @@ class RGEngine : public VulkanEngine
     AllocatedImage msaaDepth;
 
     void createMsaaImages();
+
+    // --- box3d physics demo: a cube falling onto a static ground slab ---
+    b3WorldId physicsWorld;
+    b3BodyId fallingBox;
+    std::chrono::steady_clock::time_point lastPhysicsTime;
+    float physicsAccumulator = 0.f;
+    bool physicsPaused = false;
 };
