@@ -9,8 +9,9 @@ add_library(stb_image INTERFACE)
 add_subdirectory(fastgltf)
 add_subdirectory(fmt EXCLUDE_FROM_ALL)
 add_subdirectory(SDL EXCLUDE_FROM_ALL)
+add_subdirectory(box3d EXCLUDE_FROM_ALL)
 
-target_sources(vkbootstrap PRIVATE 
+target_sources(vkbootstrap PRIVATE
   vkbootstrap/VkBootstrap.h
   vkbootstrap/VkBootstrap.cpp
   )
@@ -35,7 +36,7 @@ add_library(imgui STATIC)
 
 target_include_directories(imgui PUBLIC imgui)
 
-target_sources(imgui PRIVATE 
+target_sources(imgui PRIVATE
   imgui/imgui.h
   imgui/imgui.cpp
 
