@@ -383,98 +383,105 @@ void RGEngine::draw()
 
 void RGEngine::imGuiAddParams()
 {
-    if (ImGui::Begin("RenderGraph details"))
+    // A single control panel docked to the right, one collapsible section per group.
+    const ImGuiIO &io = ImGui::GetIO();
+    const float panelWidth = 340.f;
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - panelWidth - 10.f, 10.f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(panelWidth, io.DisplaySize.y - 20.f), ImGuiCond_FirstUseEver);
+
+    if (ImGui::Begin("Controls"))
     {
-        // Summary section
-        ImGui::SeparatorText("RenderGraph Overview");
-        ImGui::Columns(2, nullptr, false);
-        ImGui::Text("GPU Total");
-        ImGui::NextColumn();
-        ImGui::Text("%.3f ms", lastCompleteStats.totalGPUTime);
-        ImGui::NextColumn();
-        ImGui::Text("CPU Total");
-        ImGui::NextColumn();
-        ImGui::Text("%.3f ms", lastCompleteStats.CPUFrametime);
-        ImGui::NextColumn();
-        ImGui::Columns(1);
-
-        ImGui::Spacing();
-        ImGui::SeparatorText("Render Passes");
-
-        for (auto &pass : lastCompleteStats.passStats)
+        // ---- RenderGraph ----------------------------------------------------
+        if (ImGui::CollapsingHeader("RenderGraph", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            bool isCompute = pass.computeDispatches > 0;
+            ImGui::SeparatorText("Overview");
+            ImGui::Columns(2, nullptr, false);
+            ImGui::Text("GPU Total");
+            ImGui::NextColumn();
+            ImGui::Text("%.3f ms", lastCompleteStats.totalGPUTime);
+            ImGui::NextColumn();
+            ImGui::Text("CPU Total");
+            ImGui::NextColumn();
+            ImGui::Text("%.3f ms", lastCompleteStats.CPUFrametime);
+            ImGui::NextColumn();
+            ImGui::Columns(1);
 
-            ImGui::PushID(pass.name.c_str());
-            if (ImGui::CollapsingHeader(pass.name.c_str()))
+            ImGui::Spacing();
+            ImGui::SeparatorText("Render Passes");
+
+            for (auto &pass : lastCompleteStats.passStats)
             {
-                ImGui::Indent();
-                ImGui::Columns(2, nullptr, false);
+                bool isCompute = pass.computeDispatches > 0;
 
-                ImGui::Text("GPU");
-                ImGui::NextColumn();
-                ImGui::Text("%.3f ms", pass.GPUTime);
-                ImGui::NextColumn();
-                ImGui::Text("CPU");
-                ImGui::NextColumn();
-                ImGui::Text("%.3f ms", pass.CPUTime);
-                ImGui::NextColumn();
-
-                if (isCompute)
+                ImGui::PushID(pass.name.c_str());
+                if (ImGui::TreeNode(pass.name.c_str()))
                 {
-                    ImGui::Text("Dispatches");
+                    ImGui::Columns(2, nullptr, false);
+                    ImGui::Text("GPU");
                     ImGui::NextColumn();
-                    ImGui::Text("%.0f", pass.computeDispatches);
+                    ImGui::Text("%.3f ms", pass.GPUTime);
                     ImGui::NextColumn();
-                }
-                else if (pass.draws > 0)
-                {
-                    ImGui::Text("Draw Calls");
+                    ImGui::Text("CPU");
                     ImGui::NextColumn();
-                    ImGui::Text("%.0f", pass.draws);
+                    ImGui::Text("%.3f ms", pass.CPUTime);
                     ImGui::NextColumn();
-                    ImGui::Text("Triangles");
-                    ImGui::NextColumn();
-                    ImGui::Text("%.0f", pass.triangles);
-                    ImGui::NextColumn();
-                }
 
-                ImGui::Columns(1);
-                ImGui::Unindent();
+                    if (isCompute)
+                    {
+                        ImGui::Text("Dispatches");
+                        ImGui::NextColumn();
+                        ImGui::Text("%.0f", pass.computeDispatches);
+                        ImGui::NextColumn();
+                    }
+                    else if (pass.draws > 0)
+                    {
+                        ImGui::Text("Draw Calls");
+                        ImGui::NextColumn();
+                        ImGui::Text("%.0f", pass.draws);
+                        ImGui::NextColumn();
+                        ImGui::Text("Triangles");
+                        ImGui::NextColumn();
+                        ImGui::Text("%.0f", pass.triangles);
+                        ImGui::NextColumn();
+                    }
+
+                    ImGui::Columns(1);
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
             }
-            ImGui::PopID();
         }
-    }
-    ImGui::End();
 
-    if (ImGui::Begin("Physics"))
-    {
-        ImGui::Text("bodies: %zu", physics.bodyCount());
-        ImGui::Checkbox("Show collider wireframes", &showDebugDraw);
-        ImGui::Checkbox("Pause", &physicsPaused);
-        if (ImGui::Button("Re-drop"))
+        // ---- Sky / Sun ------------------------------------------------------
+        if (ImGui::CollapsingHeader("Sky / Sun"))
         {
-            physics.reset();
+            const char *modes[] = {"Procedural", "Texture"};
+            ImGui::Combo("Sky mode", &skyMode, modes, 2);
+            ImGui::SeparatorText("Sun");
+            ImGui::DragFloat3("Direction", &sunDirection.x, 0.01f, -1.f, 1.f);
+            ImGui::ColorEdit3("Color", &sunColor.x);
+            ImGui::DragFloat("Intensity", &sunIntensity, 0.1f, 0.f, 50.f);
+            ImGui::DragFloat("Disk size", &sunDiskSize, 0.001f, 0.f, 0.5f);
+            ImGui::SeparatorText("Sky gradient");
+            ImGui::ColorEdit3("Horizon", &skyHorizon.x);
+            ImGui::ColorEdit3("Zenith", &skyZenith.x);
+            ImGui::ColorEdit3("Ground", &skyGround.x);
+            ImGui::SeparatorText("Shadows");
+            ImGui::Checkbox("Enable shadows", &shadowsEnabled);
+            ImGui::DragFloat("Shadow bias", &shadowBias, 0.0005f, 0.f, 0.05f, "%.4f");
         }
-    }
-    ImGui::End();
 
-    if (ImGui::Begin("Sky / Sun"))
-    {
-        const char *modes[] = {"Procedural", "Texture"};
-        ImGui::Combo("Sky mode", &skyMode, modes, 2);
-        ImGui::SeparatorText("Sun");
-        ImGui::DragFloat3("Direction", &sunDirection.x, 0.01f, -1.f, 1.f);
-        ImGui::ColorEdit3("Color", &sunColor.x);
-        ImGui::DragFloat("Intensity", &sunIntensity, 0.1f, 0.f, 50.f);
-        ImGui::DragFloat("Disk size", &sunDiskSize, 0.001f, 0.f, 0.5f);
-        ImGui::SeparatorText("Sky gradient");
-        ImGui::ColorEdit3("Horizon", &skyHorizon.x);
-        ImGui::ColorEdit3("Zenith", &skyZenith.x);
-        ImGui::ColorEdit3("Ground", &skyGround.x);
-        ImGui::SeparatorText("Shadows");
-        ImGui::Checkbox("Enable shadows", &shadowsEnabled);
-        ImGui::DragFloat("Shadow bias", &shadowBias, 0.0005f, 0.f, 0.05f, "%.4f");
+        // ---- Physics --------------------------------------------------------
+        if (ImGui::CollapsingHeader("Physics"))
+        {
+            ImGui::Text("bodies: %zu", physics.bodyCount());
+            ImGui::Checkbox("Show collider wireframes", &showDebugDraw);
+            ImGui::Checkbox("Pause", &physicsPaused);
+            if (ImGui::Button("Re-drop"))
+            {
+                physics.reset();
+            }
+        }
     }
     ImGui::End();
 }
