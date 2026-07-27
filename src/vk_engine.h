@@ -105,6 +105,8 @@ struct GPUSceneData
     glm::vec4 sunlightDirection; // w for sun power
     glm::vec4 sunlightColor;
     glm::vec4 cameraPos;
+    glm::mat4 sunViewProj;   // world -> sun light clip space (directional shadow map)
+    glm::vec4 shadowParams;  // x = depth bias, y = shadows enabled (0/1)
 };
 
 // GPU lighting data required for punctual lights from GLTF.

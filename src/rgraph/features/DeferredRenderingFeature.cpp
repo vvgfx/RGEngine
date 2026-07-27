@@ -41,7 +41,19 @@ rgraph::DeferredRenderingFeature::DeferredRenderingFeature(DrawContext &drawCont
         layoutBuilder.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // normal
         layoutBuilder.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // albedo
         layoutBuilder.add_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // metallic-roughness
+        layoutBuilder.add_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // shadow map
         compDescriptorSetLayout = layoutBuilder.build(_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+    }
+
+    // clamp so lookups outside the light frustum read the edge
+    {
+        VkSamplerCreateInfo sampl = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        sampl.magFilter = VK_FILTER_LINEAR;
+        sampl.minFilter = VK_FILTER_LINEAR;
+        sampl.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampl.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampl.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        vkCreateSampler(_device, &sampl, nullptr, &shadowSampler);
     }
 
     // create images here and add them to be tracked.
@@ -53,19 +65,34 @@ rgraph::DeferredRenderingFeature::DeferredRenderingFeature(DrawContext &drawCont
         [_device, this]()
         {
             vkDestroySampler(_device, defaultSampler, nullptr);
+            vkDestroySampler(_device, shadowSampler, nullptr);
             vkDestroyDescriptorSetLayout(_device, lightDescriptorSetLayout, nullptr);
             vkDestroyDescriptorSetLayout(_device, compDescriptorSetLayout, nullptr);
             vkDestroyPipelineLayout(_device, geometryPipeline.layout, nullptr);
             vkDestroyPipelineLayout(_device, compositePipeline.layout, nullptr);
             vkDestroyPipelineLayout(_device, transparentPipeline.layout, nullptr);
+            vkDestroyPipelineLayout(_device, shadowPipeline.layout, nullptr);
             vkDestroyPipeline(_device, geometryPipeline.pipeline, nullptr);
             vkDestroyPipeline(_device, compositePipeline.pipeline, nullptr);
             vkDestroyPipeline(_device, transparentPipeline.pipeline, nullptr);
+            vkDestroyPipeline(_device, shadowPipeline.pipeline, nullptr);
         });
 }
 
 void rgraph::DeferredRenderingFeature::Register(rgraph::Rendergraph *builder)
 {
+
+    // runs first so the composite can sample it
+    builder->AddGraphicsPass(
+        "Shadow Pass",
+        [](Pass &pass)
+        {
+            static VkClearValue depthClear{};
+            depthClear.depthStencil = {1.0f, 0};
+            pass.AddDepthStencilAttachment("shadowMap", true, &depthClear);
+            pass.CreatesBuffer("shadowSceneBuffer", sizeof(GPUSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        },
+        [&](PassExecution &passExec) { shadowPass(passExec); });
 
     builder->AddGraphicsPass(
         "Geometry Pass",
@@ -94,6 +121,7 @@ void rgraph::DeferredRenderingFeature::Register(rgraph::Rendergraph *builder)
             pass.ReadsImage("normal_gbuf", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             pass.ReadsImage("albedo_gbuf", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             pass.ReadsImage("metalrough_gbuf", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            pass.ReadsImage("shadowMap", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             pass.AddColorAttachment("drawImage", false, &colorClearValue);
             pass.AddDepthStencilAttachment("depth_gbuf", true, nullptr);
             pass.CreatesBuffer("lightBuffer", sizeof(LightData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
@@ -254,6 +282,8 @@ void rgraph::DeferredRenderingFeature::compositePass(rgraph::PassExecution &pass
                            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
         writer.write_image(3, metalrough_gbuf.imageView, defaultSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        writer.write_image(4, shadowMap.imageView, shadowSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                           VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
         writer.update_set(passExec._device, compDescriptor);
     }
 
@@ -382,6 +412,61 @@ void rgraph::DeferredRenderingFeature::transparentPass(rgraph::PassExecution &pa
 
         passExec.drawCalls++;
         passExec.triangles += (int)(r.indexCount / 3);
+    }
+}
+
+void rgraph::DeferredRenderingFeature::shadowPass(rgraph::PassExecution &passExec)
+{
+    passExec.drawCalls = 0;
+    passExec.triangles = 0;
+
+    // the shadow vertex shader reads sunViewProj from set 0
+    AllocatedBuffer sceneBuf = passExec.allocatedBuffers["shadowSceneBuffer"];
+    *(GPUSceneData *)sceneBuf.info.pMappedData = gpuSceneData;
+
+    VkDescriptorSet sceneDescriptor = passExec.frameDescriptor->allocate(passExec._device, _gpuSceneDataDescriptorLayout);
+    {
+        DescriptorWriter writer;
+        writer.write_buffer(0, sceneBuf.buffer, sizeof(GPUSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        writer.update_set(passExec._device, sceneDescriptor);
+    }
+
+    vkCmdBindPipeline(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline.pipeline);
+    vkCmdBindDescriptorSets(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline.layout, 0, 1, &sceneDescriptor, 0, nullptr);
+
+    VkViewport viewport = {};
+    viewport.x = 0;
+    viewport.y = 0;
+    viewport.width = (float)passExec._drawExtent.width;
+    viewport.height = (float)passExec._drawExtent.height;
+    viewport.minDepth = 0.f;
+    viewport.maxDepth = 1.f;
+    vkCmdSetViewport(passExec.cmd, 0, 1, &viewport);
+
+    VkRect2D scissor = {};
+    scissor.offset = {0, 0};
+    scissor.extent.width = passExec._drawExtent.width;
+    scissor.extent.height = passExec._drawExtent.height;
+    vkCmdSetScissor(passExec.cmd, 0, 1, &scissor);
+
+    // no material, no frustum cull
+    VkBuffer lastIndexBuffer = VK_NULL_HANDLE;
+    for (const RenderObject &obj : drawContext.OpaqueSurfaces)
+    {
+        if (obj.indexBuffer != lastIndexBuffer)
+        {
+            lastIndexBuffer = obj.indexBuffer;
+            vkCmdBindIndexBuffer(passExec.cmd, obj.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+        }
+
+        GPUDrawPushConstants push_constants;
+        push_constants.modelMatrix = obj.modelMatrix;
+        push_constants.vertexBuffer = obj.vertexBufferAddress;
+        vkCmdPushConstants(passExec.cmd, shadowPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &push_constants);
+
+        vkCmdDrawIndexed(passExec.cmd, obj.indexCount, 1, obj.firstIndex, 0, 0);
+        passExec.drawCalls++;
+        passExec.triangles += (int)(obj.indexCount / 3);
     }
 }
 
@@ -524,6 +609,38 @@ void rgraph::DeferredRenderingFeature::createPipelines(MaterialSystemCreateInfo 
 
     vkDestroyShaderModule(materialSystemCreateInfo._device, meshVertexShader, nullptr);
     vkDestroyShaderModule(materialSystemCreateInfo._device, meshFragShader, nullptr);
+
+    VkShaderModule shadowVert;
+    if (!vkutil::load_shader_module("../shaders/shadow/shadow.vert.spv", materialSystemCreateInfo._device, &shadowVert))
+        fmt::println("Error when building the shadow vertex shader\n");
+    VkShaderModule shadowFrag;
+    if (!vkutil::load_shader_module("../shaders/shadow/shadow.frag.spv", materialSystemCreateInfo._device, &shadowFrag))
+        fmt::println("Error when building the shadow fragment shader\n");
+
+    VkDescriptorSetLayout shadowLayouts[] = {materialSystemCreateInfo._gpuSceneDataDescriptorLayout};
+    VkPipelineLayoutCreateInfo shadowLayoutInfo = vkinit::pipeline_layout_create_info();
+    shadowLayoutInfo.setLayoutCount = 1;
+    shadowLayoutInfo.pSetLayouts = shadowLayouts;
+    shadowLayoutInfo.pPushConstantRanges = &matrixRange;
+    shadowLayoutInfo.pushConstantRangeCount = 1;
+
+    VkPipelineLayout shadowPipelineLayout;
+    VK_CHECK(vkCreatePipelineLayout(materialSystemCreateInfo._device, &shadowLayoutInfo, nullptr, &shadowPipelineLayout));
+    shadowPipeline.layout = shadowPipelineLayout;
+
+    pipelineBuilder.clear();
+    pipelineBuilder.set_shaders(shadowVert, shadowFrag);
+    pipelineBuilder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    pipelineBuilder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+    pipelineBuilder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+    pipelineBuilder.set_multisampling_none();
+    pipelineBuilder.enable_depthtest(true, VK_COMPARE_OP_LESS_OR_EQUAL);
+    pipelineBuilder.set_depth_format(VK_FORMAT_D32_SFLOAT);
+    pipelineBuilder._pipelineLayout = shadowPipelineLayout;
+    shadowPipeline.pipeline = pipelineBuilder.build_pipeline(materialSystemCreateInfo._device);
+
+    vkDestroyShaderModule(materialSystemCreateInfo._device, shadowVert, nullptr);
+    vkDestroyShaderModule(materialSystemCreateInfo._device, shadowFrag, nullptr);
 }
 
 void rgraph::DeferredRenderingFeature::createImages(DeletionQueue &delQueue)
@@ -601,5 +718,26 @@ void rgraph::DeferredRenderingFeature::createImages(DeletionQueue &delQueue)
             auto &_gpuResourceAllocator = GPUResourceAllocator::Instance();
             vkDestroyImageView(device, depth_gbuf.imageView, nullptr);
             _gpuResourceAllocator.destroy_image(depth_gbuf.image, depth_gbuf.allocation);
+        });
+
+    // also SAMPLED, so the composite can read it
+    shadowMap.imageFormat = VK_FORMAT_D32_SFLOAT;
+    shadowMap.imageExtent = imageExtent;
+    VkImageUsageFlags shadowUsages = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    VkImageCreateInfo simg_info = vkinit::image_create_info(shadowMap.imageFormat, shadowUsages, imageExtent);
+
+    GPUResourceAllocator::Instance().create_image(&simg_info, &rimg_allocinfo, &shadowMap.image, &shadowMap.allocation, nullptr);
+
+    VkImageViewCreateInfo sview_info = vkinit::imageview_create_info(shadowMap.imageFormat, shadowMap.image, VK_IMAGE_ASPECT_DEPTH_BIT);
+    VK_CHECK(vkCreateImageView(device, &sview_info, nullptr, &shadowMap.imageView));
+
+    rgraphInstance.AddTrackedImage("shadowMap", VK_IMAGE_LAYOUT_UNDEFINED, shadowMap);
+
+    delQueue.push_function(
+        [=, this]
+        {
+            auto &_gpuResourceAllocator = GPUResourceAllocator::Instance();
+            vkDestroyImageView(device, shadowMap.imageView, nullptr);
+            _gpuResourceAllocator.destroy_image(shadowMap.image, shadowMap.allocation);
         });
 }

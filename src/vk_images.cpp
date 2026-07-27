@@ -19,7 +19,10 @@ void vkutil::transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout 
     imageBarrier.oldLayout = currentLayout;
     imageBarrier.newLayout = newLayout;
 
-    VkImageAspectFlags aspectMask = (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+    // depth aspect if either layout is depth-attachment, e.g. a sampled shadow map
+    bool isDepth =
+        (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) || (currentLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    VkImageAspectFlags aspectMask = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
     imageBarrier.subresourceRange = vkinit::image_subresource_range(aspectMask);
     imageBarrier.image = image;
 
@@ -174,9 +177,10 @@ void vkutil::BarrierMerger::transition_image(VkImage image, VkImageLayout curren
     imageBarrier.oldLayout = currentLayout;
     imageBarrier.newLayout = newLayout;
 
-    VkImageAspectFlags aspectMask = (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
-                                        ? VK_IMAGE_ASPECT_DEPTH_BIT
-                                        : VK_IMAGE_ASPECT_COLOR_BIT; // currently not using stencil buffers, so this fine.
+    // depth aspect if either layout is depth-attachment, e.g. a sampled shadow map
+    bool isDepth =
+        (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) || (currentLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    VkImageAspectFlags aspectMask = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
     imageBarrier.subresourceRange = vkinit::image_subresource_range(aspectMask);
     imageBarrier.image = image;
 

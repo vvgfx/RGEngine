@@ -2,6 +2,7 @@ layout(set = 0, binding = 0) uniform sampler2D inPosition;
 layout(set = 0, binding = 1) uniform sampler2D inNormal;
 layout(set = 0, binding = 2) uniform sampler2D inAlbedo;
 layout(set = 0, binding = 3) uniform sampler2D inMetalllicRoughness;
+layout(set = 0, binding = 4) uniform sampler2D shadowMap;
 
 layout(set = 1, binding = 0) uniform SceneData
 {
@@ -12,6 +13,8 @@ layout(set = 1, binding = 0) uniform SceneData
     vec4 sunlightDirection; // w for sun power
     vec4 sunlightColor;
     vec4 cameraPos;
+    mat4 sunViewProj;  // world -> sun light clip space
+    vec4 shadowParams; // x = bias, y = enabled
 }
 sceneData;
 

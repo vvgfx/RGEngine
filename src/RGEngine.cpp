@@ -14,6 +14,7 @@
 #include <RGEngine.h>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <fstream>
 #include <glm/glm.hpp>
 #include <glm/gtx/quaternion.hpp>
@@ -155,6 +156,16 @@ void RGEngine::update_scene()
     sceneData.sunlightDirection = glm::vec4(sunDir, sunIntensity);
     sceneData.sunlightColor = glm::vec4(sunColor, 1.f);
     sceneData.ambientColor = glm::vec4(skyZenith * 0.15f, 1.f); // ambient tracks the sky
+
+    // an orthographic "camera" at the sun
+    {
+        glm::vec3 up = std::abs(sunDir.y) > 0.99f ? glm::vec3(0.f, 0.f, 1.f) : glm::vec3(0.f, 1.f, 0.f);
+        glm::mat4 lightView = glm::lookAt(-sunDir * 40.f, glm::vec3(0.f), up);
+        glm::mat4 lightProj = glm::ortho(-25.f, 25.f, -25.f, 25.f, 0.1f, 100.f);
+        lightProj[1][1] *= -1.f; // match the engine's Vulkan-Y convention
+        sceneData.sunViewProj = lightProj * lightView;
+        sceneData.shadowParams = glm::vec4(shadowBias, shadowsEnabled ? 1.f : 0.f, 0.f, 0.f);
+    }
     if (skyboxFeature)
     {
         rgraph::SkyboxFeature::Params p;
@@ -454,6 +465,9 @@ void RGEngine::imGuiAddParams()
         ImGui::ColorEdit3("Horizon", &skyHorizon.x);
         ImGui::ColorEdit3("Zenith", &skyZenith.x);
         ImGui::ColorEdit3("Ground", &skyGround.x);
+        ImGui::SeparatorText("Shadows");
+        ImGui::Checkbox("Enable shadows", &shadowsEnabled);
+        ImGui::DragFloat("Shadow bias", &shadowBias, 0.0005f, 0.f, 0.05f, "%.4f");
     }
     ImGui::End();
 }
