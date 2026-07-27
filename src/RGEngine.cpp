@@ -169,7 +169,7 @@ void RGEngine::update_scene()
         std::vector<DebugLineVertex> lines;
         if (showDebugDraw)
         {
-            physics.appendDebugLines(lines);
+            physics.drawDebug(lines);
         }
         debugFeature->setLines(std::move(lines));
     }

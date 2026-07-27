@@ -4,15 +4,20 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <cstdint>
 #include <fmt/core.h>
+#include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
 
 using namespace physics;
 
-// helpers
+// helpers + Box3D debug-draw callbacks
 namespace
 {
+    constexpr float TWO_PI = 6.2831853f;
+    constexpr float PI = 3.14159265f;
+
     b3BodyType mapType(sgraph::RigidBodySpec::Body b)
     {
         switch (b)
@@ -42,9 +47,9 @@ namespace
     {
         mn = glm::vec3(FLT_MAX);
         mx = glm::vec3(-FLT_MAX);
-        for (const auto &[name, mesh] : sc.meshes)
+        for (const auto &entry : sc.meshes)
         {
-            for (const GeoSurface &surf : mesh->surfaces)
+            for (const GeoSurface &surf : entry.second->surfaces)
             {
                 mn = glm::min(mn, surf.bounds.origin - surf.bounds.extents);
                 mx = glm::max(mx, surf.bounds.origin + surf.bounds.extents);
@@ -74,37 +79,142 @@ namespace
         return r;
     }
 
-    // ---- debug-line generation ----
-    void addLine(std::vector<DebugLineVertex> &out, const glm::mat4 &M, const glm::vec3 &a, const glm::vec3 &b, const glm::vec4 &c)
+    glm::vec3 toGlm(const b3Vec3 &v)
     {
-        glm::vec3 wa = glm::vec3(M * glm::vec4(a, 1.f));
-        glm::vec3 wb = glm::vec3(M * glm::vec4(b, 1.f));
-        out.push_back({glm::vec4(wa, 1.f), c});
-        out.push_back({glm::vec4(wb, 1.f), c});
+        return glm::vec3(v.x, v.y, v.z);
     }
 
-    // Sample an arc: p(theta) = center + radius*(cos*e1 + sin*e2), theta in [t0,t1].
-    void arc(std::vector<DebugLineVertex> &out, const glm::mat4 &M, const glm::vec3 &center, const glm::vec3 &e1, const glm::vec3 &e2,
-             float radius, float t0, float t1, int segs, const glm::vec4 &c)
+    // ---- Box3D debug-draw path ----
+    // endpoint pairs in shape-local space, built once and transformed to world each frame
+    struct DebugShapeProxy
+    {
+        std::vector<glm::vec3> segments;
+    };
+
+    void pushSeg(std::vector<glm::vec3> &s, const glm::vec3 &a, const glm::vec3 &b)
+    {
+        s.push_back(a);
+        s.push_back(b);
+    }
+
+    // arc as local segments: p(theta) = c + r*(cos*e1 + sin*e2), theta in [t0,t1]
+    void arcLocal(std::vector<glm::vec3> &s, const glm::vec3 &c, const glm::vec3 &e1, const glm::vec3 &e2, float r, float t0, float t1, int segs)
     {
         glm::vec3 prev(0.f);
         for (int i = 0; i <= segs; i++)
         {
             float th = t0 + (t1 - t0) * (float)i / (float)segs;
-            glm::vec3 p = center + radius * (std::cos(th) * e1 + std::sin(th) * e2);
+            glm::vec3 p = c + r * (std::cos(th) * e1 + std::sin(th) * e2);
             if (i > 0)
-                addLine(out, M, prev, p, c);
+                pushSeg(s, prev, p);
             prev = p;
         }
     }
 
-    constexpr float TWO_PI = 6.2831853f;
-    constexpr float PI = 3.14159265f;
+    // we own the returned handle
+    void *box3dCreateDebugShape(const b3DebugShape *ds, void * /*userContext*/)
+    {
+        auto *proxy = new DebugShapeProxy();
+
+        switch (ds->type)
+        {
+        case b3_hullShape: // boxes are hulls too -> real Box3D hull edges
+        {
+            const b3HullData *hull = ds->hull;
+            const b3Vec3 *pts = b3GetHullPoints(hull);
+            const b3HullHalfEdge *edges = b3GetHullEdges(hull);
+            if (pts && edges)
+            {
+                // edgeCount is the half-edge count; draw each undirected edge once (i < twin)
+                for (int i = 0; i < hull->edgeCount; i++)
+                {
+                    int twin = edges[i].twin;
+                    if (i < twin)
+                        pushSeg(proxy->segments, toGlm(pts[edges[i].origin]), toGlm(pts[edges[twin].origin]));
+                }
+            }
+            break;
+        }
+        case b3_sphereShape:
+        {
+            const b3Sphere *sp = ds->sphere;
+            glm::vec3 c = toGlm(sp->center);
+            float r = sp->radius;
+            arcLocal(proxy->segments, c, {1, 0, 0}, {0, 1, 0}, r, 0.f, TWO_PI, 24);
+            arcLocal(proxy->segments, c, {0, 1, 0}, {0, 0, 1}, r, 0.f, TWO_PI, 24);
+            arcLocal(proxy->segments, c, {1, 0, 0}, {0, 0, 1}, r, 0.f, TWO_PI, 24);
+            break;
+        }
+        case b3_capsuleShape:
+        {
+            const b3Capsule *cap = ds->capsule;
+            glm::vec3 a = toGlm(cap->center1), b = toGlm(cap->center2);
+            float r = cap->radius;
+            glm::vec3 axis = a - b;
+            float len = glm::length(axis);
+            axis = len > 1e-5f ? axis / len : glm::vec3(0, 1, 0);
+            glm::vec3 ref = std::abs(axis.x) < 0.9f ? glm::vec3(1, 0, 0) : glm::vec3(0, 0, 1);
+            glm::vec3 u = glm::normalize(glm::cross(axis, ref));
+            glm::vec3 v = glm::cross(axis, u);
+            arcLocal(proxy->segments, a, u, v, r, 0.f, TWO_PI, 20); // ring at cap A
+            arcLocal(proxy->segments, b, u, v, r, 0.f, TWO_PI, 20); // ring at cap B
+            for (const glm::vec3 &d : {u, -u, v, -v})
+                pushSeg(proxy->segments, a + r * d, b + r * d); // connectors
+            arcLocal(proxy->segments, a, u, axis, r, 0.f, PI, 12); // cap A domes
+            arcLocal(proxy->segments, a, v, axis, r, 0.f, PI, 12);
+            arcLocal(proxy->segments, b, u, -axis, r, 0.f, PI, 12); // cap B domes
+            arcLocal(proxy->segments, b, v, -axis, r, 0.f, PI, 12);
+            break;
+        }
+        default:
+            break; // compound/mesh/heightfield not used in this PoC
+        }
+
+        return proxy;
+    }
+
+    void box3dDestroyDebugShape(void *userShape, void * /*userContext*/)
+    {
+        delete static_cast<DebugShapeProxy *>(userShape);
+    }
+
+    glm::vec4 hexToColor(b3HexColor c)
+    {
+        unsigned v = (unsigned)c & 0x00FFFFFFu; // low 24 bits are RGB; high byte is a material preset
+        return glm::vec4(((v >> 16) & 0xFF) / 255.f, ((v >> 8) & 0xFF) / 255.f, (v & 0xFF) / 255.f, 1.f);
+    }
+
+    // returning true keeps box3d drawing (b3DebugDraw contract)
+    bool box3dDrawShape(void *userShape, b3WorldTransform transform, b3HexColor color, void *context)
+    {
+        auto *out = static_cast<std::vector<DebugLineVertex> *>(context);
+        auto *proxy = static_cast<DebugShapeProxy *>(userShape);
+        if (!out || !proxy)
+            return true;
+
+        glm::vec3 p((float)transform.p.x, (float)transform.p.y, (float)transform.p.z);
+        glm::quat q(transform.q.s, transform.q.v.x, transform.q.v.y, transform.q.v.z);
+        glm::mat4 M = glm::translate(glm::mat4(1.f), p) * glm::toMat4(q);
+        glm::vec4 col = hexToColor(color);
+
+        for (std::size_t i = 0; i + 1 < proxy->segments.size(); i += 2)
+        {
+            glm::vec3 a = glm::vec3(M * glm::vec4(proxy->segments[i], 1.f));
+            glm::vec3 b = glm::vec3(M * glm::vec4(proxy->segments[i + 1], 1.f));
+            out->push_back({glm::vec4(a, 1.f), col});
+            out->push_back({glm::vec4(b, 1.f), col});
+        }
+        return true;
+    }
 } // namespace
 
 void PhysicsSystem::init()
 {
     b3WorldDef def = b3DefaultWorldDef(); // default gravity {0,-10,0}
+    // so b3World_Draw can render collider wireframes
+    def.createDebugShape = &box3dCreateDebugShape;
+    def.destroyDebugShape = &box3dDestroyDebugShape;
+    def.userDebugShapeContext = nullptr;
     world = b3CreateWorld(&def);
     initialized = true;
 }
@@ -140,7 +250,6 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
         body.type = spec.body;
         body.shape = spec.shape;
         body.bakedScale = s;
-        body.geometry = leaf->geometry;
 
         b3BodyDef bd = b3DefaultBodyDef();
         bd.type = mapType(spec.body);
@@ -164,19 +273,14 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
         {
             b3BoxHull bh = b3MakeOffsetBoxHull(half.x, half.y, half.z, b3Vec3{center.x, center.y, center.z});
             b3CreateHullShape(body.id, &sd, &bh.base);
-            body.boxHalf = half;
-            body.shapeCenter = center;
             break;
         }
         case sgraph::RigidBodySpec::Shape::Sphere:
         {
-            float rad = std::max({half.x, half.y, half.z});
             b3Sphere sph;
             sph.center = b3Vec3{center.x, center.y, center.z};
-            sph.radius = rad;
+            sph.radius = std::max({half.x, half.y, half.z});
             b3CreateSphereShape(body.id, &sd, &sph);
-            body.radius = rad;
-            body.shapeCenter = center;
             break;
         }
         case sgraph::RigidBodySpec::Shape::Capsule:
@@ -200,16 +304,13 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
             cap.center2 = b3Vec3{b.x, b.y, b.z};
             cap.radius = rad;
             b3CreateCapsuleShape(body.id, &sd, &cap);
-            body.capA = a;
-            body.capB = b;
-            body.radius = rad;
             break;
         }
         case sgraph::RigidBodySpec::Shape::Hull:
         {
             std::vector<b3Vec3> pts;
-            for (const auto &[name, mesh] : leaf->geometry->meshes)
-                for (const glm::vec3 &p : mesh->positions)
+            for (const auto &entry : leaf->geometry->meshes)
+                for (const glm::vec3 &p : entry.second->positions)
                     pts.push_back(b3Vec3{p.x * s.x, p.y * s.y, p.z * s.z});
             if (pts.empty())
             {
@@ -281,89 +382,21 @@ void PhysicsSystem::cleanup()
     bodies.clear();
     if (initialized)
     {
-        b3DestroyWorld(world);
+        b3DestroyWorld(world); // also invokes destroyDebugShape for any built debug shapes
         initialized = false;
     }
 }
 
-void PhysicsSystem::appendDebugLines(std::vector<DebugLineVertex> &out) const
+void PhysicsSystem::drawDebug(std::vector<DebugLineVertex> &out)
 {
-    const glm::vec4 kBox{1.0f, 0.85f, 0.1f, 1.f};
-    const glm::vec4 kSphere{0.2f, 0.9f, 1.0f, 1.f};
-    const glm::vec4 kCapsule{1.0f, 0.3f, 0.9f, 1.f};
-    const glm::vec4 kHull{0.4f, 1.0f, 0.4f, 1.f};
-
-    for (const Body &b : bodies)
-    {
-        // current world pose (no scale: collider params already include baked scale)
-        b3Pos p = b3Body_GetPosition(b.id);
-        b3Quat q = b3Body_GetRotation(b.id);
-        glm::vec3 pos((float)p.x, (float)p.y, (float)p.z);
-        glm::quat rot(q.s, q.v.x, q.v.y, q.v.z);
-        glm::mat4 M = glm::translate(glm::mat4(1.f), pos) * glm::toMat4(rot);
-
-        switch (b.shape)
-        {
-        case sgraph::RigidBodySpec::Shape::Box:
-        {
-            glm::vec3 c = b.shapeCenter, h = b.boxHalf;
-            glm::vec3 crn[8];
-            for (int i = 0; i < 8; i++)
-                crn[i] = c + glm::vec3((i & 1) ? h.x : -h.x, (i & 2) ? h.y : -h.y, (i & 4) ? h.z : -h.z);
-            const int e[12][2] = {{0, 1}, {1, 3}, {3, 2}, {2, 0}, {4, 5}, {5, 7}, {7, 6}, {6, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
-            for (auto &ed : e)
-                addLine(out, M, crn[ed[0]], crn[ed[1]], kBox);
-            break;
-        }
-        case sgraph::RigidBodySpec::Shape::Sphere:
-        {
-            glm::vec3 c = b.shapeCenter;
-            glm::vec3 X{1, 0, 0}, Y{0, 1, 0}, Z{0, 0, 1};
-            arc(out, M, c, X, Y, b.radius, 0.f, TWO_PI, 24, kSphere);
-            arc(out, M, c, Y, Z, b.radius, 0.f, TWO_PI, 24, kSphere);
-            arc(out, M, c, X, Z, b.radius, 0.f, TWO_PI, 24, kSphere);
-            break;
-        }
-        case sgraph::RigidBodySpec::Shape::Capsule:
-        {
-            glm::vec3 axis = b.capA - b.capB;
-            float len = glm::length(axis);
-            axis = len > 1e-5f ? axis / len : glm::vec3(0, 1, 0);
-            glm::vec3 ref = std::abs(axis.x) < 0.9f ? glm::vec3(1, 0, 0) : glm::vec3(0, 0, 1);
-            glm::vec3 u = glm::normalize(glm::cross(axis, ref));
-            glm::vec3 v = glm::cross(axis, u);
-            float r = b.radius;
-            arc(out, M, b.capA, u, v, r, 0.f, TWO_PI, 20, kCapsule); // ring at cap A
-            arc(out, M, b.capB, u, v, r, 0.f, TWO_PI, 20, kCapsule); // ring at cap B
-            for (const glm::vec3 &d : {u, -u, v, -v})
-                addLine(out, M, b.capA + r * d, b.capB + r * d, kCapsule); // connectors
-            arc(out, M, b.capA, u, axis, r, 0.f, PI, 12, kCapsule);       // cap A domes
-            arc(out, M, b.capA, v, axis, r, 0.f, PI, 12, kCapsule);
-            arc(out, M, b.capB, u, -axis, r, 0.f, PI, 12, kCapsule); // cap B domes
-            arc(out, M, b.capB, v, -axis, r, 0.f, PI, 12, kCapsule);
-            break;
-        }
-        case sgraph::RigidBodySpec::Shape::Hull:
-        {
-            if (!b.geometry)
-                break;
-            glm::vec3 sc = b.bakedScale;
-            for (const auto &[name, mesh] : b.geometry->meshes)
-            {
-                const auto &pos3 = mesh->positions;
-                const auto &idx = mesh->indices;
-                for (std::size_t i = 0; i + 2 < idx.size(); i += 3)
-                {
-                    glm::vec3 a = pos3[idx[i + 0]] * sc;
-                    glm::vec3 bb = pos3[idx[i + 1]] * sc;
-                    glm::vec3 cc = pos3[idx[i + 2]] * sc;
-                    addLine(out, M, a, bb, kHull);
-                    addLine(out, M, bb, cc, kHull);
-                    addLine(out, M, cc, a, kHull);
-                }
-            }
-            break;
-        }
-        }
-    }
+    if (!initialized)
+        return;
+    b3DebugDraw draw = b3DefaultDebugDraw();
+    draw.drawShapes = true;
+    draw.drawBounds = false;
+    draw.DrawShapeFcn = &box3dDrawShape;
+    draw.context = &out;
+    // ensure the broadphase query covers the whole scene
+    draw.drawingBounds = b3AABB{b3Vec3{-1e9f, -1e9f, -1e9f}, b3Vec3{1e9f, 1e9f, 1e9f}};
+    b3World_Draw(world, &draw, UINT64_MAX);
 }
