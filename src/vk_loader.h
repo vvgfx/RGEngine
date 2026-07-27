@@ -41,6 +41,12 @@ struct MeshAsset
     std::string name;
     std::vector<GeoSurface> surfaces; // submesh
     GPUMeshBuffers meshBuffers;
+
+    // CPU-side copies retained so physics can build convex hulls from the raw geometry
+    // and the debug overlay can draw hull wireframes as triangle edges. The GPU buffers
+    // above are write-only. Positions are in mesh-local space.
+    std::vector<glm::vec3> positions;
+    std::vector<uint32_t> indices;
 };
 
 // contains details required for the loaders.

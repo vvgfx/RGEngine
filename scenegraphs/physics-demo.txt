@@ -1,0 +1,68 @@
+# Box3D physics PoC scene.
+# The authored scenegraph is authoritative; glTF files are pure geometry sources.
+# Transforms accumulate down the hierarchy (parent world * local).
+#
+# Grammar:
+#   gltf <name> <path>                                 register a geometry source
+#   group <var> | transform <var>                      group / transform node
+#   translate/rotate/scale <var> ...                   compose onto a transform node
+#   mesh <var> <gltfName>                              leaf referencing geometry
+#   add-child <child> <parent>                         wire hierarchy
+#   root <var>                                         set the graph root
+#   rigidbody <var> <static|dynamic|kinematic> <box|sphere|capsule|hull> [density]
+
+# --- geometry sources ---
+gltf g_ground  ../physics_models/box3d_ground.gltf
+gltf g_cube    ../physics_models/box3d_cube.gltf
+gltf g_sphere  ../physics_models/box3d_sphere.gltf
+gltf g_capsule ../physics_models/box3d_capsule.gltf
+gltf g_hull    ../physics_models/box3d_hull.gltf
+
+# --- scene root ---
+group root
+
+# --- static ground: unit cube scaled to a wide flat slab, top surface at y = 0 ---
+transform t_ground
+translate t_ground 0 -1 0
+scale t_ground 20 1 20
+mesh m_ground g_ground
+add-child m_ground t_ground
+add-child t_ground root
+rigidbody m_ground static box
+
+# --- dynamic box, dropped and slightly tilted so it tumbles ---
+transform t_box
+translate t_box -6 9 0
+rotate t_box 25 1 0 1
+mesh m_box g_cube
+add-child m_box t_box
+add-child t_box root
+rigidbody m_box dynamic box 1.0
+
+# --- dynamic sphere ---
+transform t_sphere
+translate t_sphere -2 11 0
+mesh m_sphere g_sphere
+add-child m_sphere t_sphere
+add-child t_sphere root
+rigidbody m_sphere dynamic sphere 1.0
+
+# --- dynamic capsule, tilted so it topples ---
+transform t_capsule
+translate t_capsule 2 10 0
+rotate t_capsule 30 0 0 1
+mesh m_capsule g_capsule
+add-child m_capsule t_capsule
+add-child t_capsule root
+rigidbody m_capsule dynamic capsule 1.0
+
+# --- dynamic convex hull (icosahedron 'rock') ---
+transform t_hull
+translate t_hull 6 12 0
+rotate t_hull 20 1 1 0
+mesh m_hull g_hull
+add-child m_hull t_hull
+add-child t_hull root
+rigidbody m_hull dynamic hull 1.0
+
+root root
