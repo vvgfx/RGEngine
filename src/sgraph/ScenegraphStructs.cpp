@@ -1,6 +1,9 @@
 #include "ScenegraphStructs.h"
 #include "vk_engine.h"
+#include "vk_loader.h"
 #include "vk_types.h"
+#include <glm/glm.hpp>
+#include <glm/gtx/transform.hpp>
 
 void sgraph::MeshNode::Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 {
@@ -77,5 +80,32 @@ void sgraph::LightNode::Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
     lData.transform = topMatrix * this->worldTransform;
     lData.range = lightingData->range;
     ctx.lights.push_back(lData);
+    Node::Draw(topMatrix, ctx);
+}
+
+// ---- Authored scenegraph node types --------------------------------------
+
+void sgraph::TransformNode::applyTranslate(const glm::vec3 &t)
+{
+    localTransform = localTransform * glm::translate(glm::mat4(1.f), t);
+}
+
+void sgraph::TransformNode::applyRotate(float degrees, const glm::vec3 &axis)
+{
+    localTransform = localTransform * glm::rotate(glm::mat4(1.f), glm::radians(degrees), glm::normalize(axis));
+}
+
+void sgraph::TransformNode::applyScale(const glm::vec3 &s)
+{
+    localTransform = localTransform * glm::scale(glm::mat4(1.f), s);
+}
+
+void sgraph::GLTFLeafNode::Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
+{
+    if (geometry)
+    {
+        geometry->Draw(topMatrix * worldTransform, ctx);
+    }
+    // A leaf may still parent children in the authored graph.
     Node::Draw(topMatrix, ctx);
 }

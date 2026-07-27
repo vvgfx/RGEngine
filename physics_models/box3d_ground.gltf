@@ -1,7 +1,7 @@
 {
   "asset": {
     "version": "2.0",
-    "generator": "box3d-demo cube generator"
+    "generator": "box3d-demo asset generator"
   },
   "scene": 0,
   "scenes": [
@@ -81,14 +81,14 @@
       "count": 24,
       "type": "VEC3",
       "min": [
-        -1,
-        -1,
-        -1
+        -1.0,
+        -1.0,
+        -1.0
       ],
       "max": [
-        1,
-        1,
-        1
+        1.0,
+        1.0,
+        1.0
       ]
     },
     {

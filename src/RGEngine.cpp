@@ -2,8 +2,10 @@
 #include "MaterialSystem.h"
 #include "imgui.h"
 #include "rgraph/features/ComputeBackgroundFeature.h"
+#include "rgraph/features/DebugDrawFeature.h"
 #include "rgraph/features/DeferredRenderingFeature.h"
 #include "rgraph/features/PBRShadingFeature.h"
+#include "sgraph/ScenegraphImporter.h"
 #include "vk_engine.h"
 #include "vk_images.h"
 #include "vk_initializers.h"
@@ -12,6 +14,7 @@
 #include <RGEngine.h>
 #include <algorithm>
 #include <chrono>
+#include <fstream>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/transform.hpp>
 #include <memory>
@@ -22,8 +25,6 @@ void RGEngine::init()
 
     VulkanEngine::init();
 
-    std::string structurePath = {"../assets/outpostWithLights4.glb"};
-
     GLTFCreatorData creatorData = {};
 
     creatorData._defaultSamplerLinear = _defaultSamplerLinear;
@@ -32,51 +33,26 @@ void RGEngine::init()
     creatorData._device = _device;
     creatorData.materialSystemReference = &materialSystemInstance;
 
-    // this is called after the pipelines are initialzed.
-    auto structureFile = loadGltf(creatorData, structurePath);
+    // authored scenegraph is authoritative; glTF files are geometry sources it references
+    sgraph::ScenegraphImporter importer(creatorData);
+    std::ifstream sceneStream("../scenegraphs/physics-demo.txt");
+    if (!sceneStream)
+    {
+        fmt::print("RGEngine: failed to open ../scenegraphs/physics-demo.txt\n");
+    }
+    scenegraph = importer.parse(sceneStream);
 
-    assert(structureFile.has_value());
+    // physics reads world poses, so bake first
+    if (auto rootNode = std::dynamic_pointer_cast<sgraph::Node>(scenegraph->getRoot()))
+    {
+        rootNode->refreshTransform(glm::mat4{1.f});
+    }
 
-    loadedScenes["outpost"] = *structureFile;
+    physics.init();
+    physics.buildFromScene(scenegraph, importer.getPhysicsSpecs());
 
-    structureFile.value()->name = "outpost";
-
-    // --- box3d physics demo setup ---
-    auto cubeFile = loadGltf(creatorData, "../physics_models/box3d_cube.gltf");
-    assert(cubeFile.has_value());
-    loadedScenes["cube"] = *cubeFile;
-    cubeFile.value()->name = "cube";
-
-    auto groundFile = loadGltf(creatorData, "../physics_models/box3d_ground.gltf");
-    assert(groundFile.has_value());
-    loadedScenes["ground"] = *groundFile;
-    groundFile.value()->name = "ground";
-
-    // Physics world (default gravity {0,-10,0}).
-    b3WorldDef worldDef = b3DefaultWorldDef();
-    physicsWorld = b3CreateWorld(&worldDef);
-
-    // Static ground slab: center y=-1, half-extents (20,1,20) -> top surface at y=0.
-    b3BodyDef groundDef = b3DefaultBodyDef();
-    groundDef.position = b3Pos{0.0, -1.0, 0.0};
-    b3BodyId ground = b3CreateBody(physicsWorld, &groundDef);
-    b3BoxHull groundHull = b3MakeBoxHull(20.0f, 1.0f, 20.0f);
-    b3ShapeDef groundShape = b3DefaultShapeDef();
-    b3CreateHullShape(ground, &groundShape, &groundHull.base);
-
-    // Dynamic unit cube (half-extent 1, matches b3MakeCubeHull(1)) dropped from y=8.
-    b3BodyDef boxDef = b3DefaultBodyDef();
-    boxDef.type = b3_dynamicBody;
-    boxDef.position = b3Pos{0.0, 8.0, 0.0};
-    fallingBox = b3CreateBody(physicsWorld, &boxDef);
-    b3BoxHull cubeHull = b3MakeCubeHull(1.0f);
-    b3ShapeDef cubeShape = b3DefaultShapeDef();
-    cubeShape.density = 1.0f; // dynamic bodies need non-zero density
-    b3CreateHullShape(fallingBox, &cubeShape, &cubeHull.base);
-
-    // Frame the physics scene.
-    mainCamera.position = glm::vec3{0.f, 4.f, 25.f};
-    mainCamera.pitch = -0.15f;
+    mainCamera.position = glm::vec3{0.f, 8.f, 32.f};
+    mainCamera.pitch = -0.25f;
     mainCamera.yaw = 0.f;
 
     lastPhysicsTime = std::chrono::steady_clock::now();
@@ -91,6 +67,11 @@ void RGEngine::init()
 
     deferredFeature = std::make_shared<rgraph::DeferredRenderingFeature>(mainDrawContext, _device, sceneData, _gpuSceneDataDescriptorLayout,
                                                                          msCreateInfo, _mainDeletionQueue);
+
+    // draws over drawImage, so it must come after the deferred passes
+    debugFeature = std::make_shared<rgraph::DebugDrawFeature>(_device, sceneData, _gpuSceneDataDescriptorLayout, _drawImage.imageFormat,
+                                                              _depthImage.imageFormat, _mainDeletionQueue);
+
     // create MSAA images. TODO: move these out somewhere later.
     createMsaaImages();
 
@@ -102,6 +83,7 @@ void RGEngine::init()
     builder.AddFeature(computeFeature);
     // builder.AddFeature(PBRFeature);
     builder.AddFeature(deferredFeature);
+    builder.AddFeature(debugFeature); // overlay must be last so it draws on top
 
     builder.SetTimestampPeriod(timestampPeriod);
 }
@@ -144,8 +126,10 @@ void RGEngine::init_default_data()
 
 void RGEngine::cleanupOnChildren()
 {
-
-    b3DestroyWorld(physicsWorld);
+    physics.cleanup(); // destroy world + heap hulls first
+    if (scenegraph)
+        scenegraph->cleanup();
+    scenegraph.reset(); // releases glTF geometry (Scene dtors free GPU resources)
     loadedScenes.clear();
     materialSystemInstance.clear_resources(_device);
 }
@@ -156,41 +140,39 @@ void RGEngine::update_scene()
 
     VulkanEngine::update_scene();
 
-    // --- box3d: advance the simulation with a fixed-timestep accumulator ---
+    // fixed timestep, so the sim is independent of frame rate
     auto now = std::chrono::steady_clock::now();
     float frameDt = std::chrono::duration<float>(now - lastPhysicsTime).count();
     lastPhysicsTime = now;
     if (!physicsPaused)
     {
-        physicsAccumulator = std::min(physicsAccumulator + frameDt, 0.25f); // clamp: anti spiral-of-death
-        const float fixedStep = 1.0f / 60.0f;
-        while (physicsAccumulator >= fixedStep)
-        {
-            b3World_Step(physicsWorld, fixedStep, 4);
-            physicsAccumulator -= fixedStep;
-        }
+        physics.step(frameDt);
+    }
+    physics.sync();
+
+    if (scenegraph && scenegraph->getRoot())
+    {
+        scenegraph->getRoot()->Draw(glm::mat4{1.f}, mainDrawContext);
     }
 
-    // Read the cube pose (position is b3Pos/double; rotation is b3Quat{ b3Vec3 v; float s; }).
-    b3Pos p = b3Body_GetPosition(fallingBox);
-    b3Quat r = b3Body_GetRotation(fallingBox);
-    glm::vec3 cubePos((float)p.x, (float)p.y, (float)p.z);
-    glm::quat cubeRot(r.s, r.v.x, r.v.y, r.v.z); // glm order is (w, x, y, z)
-
-    // Place each mesh via topMatrix (Scene::Draw bakes topMatrix * worldTransform).
-    glm::mat4 cubeM = glm::translate(glm::mat4(1.f), cubePos) * glm::toMat4(cubeRot);
-    glm::mat4 groundM =
-        glm::translate(glm::mat4(1.f), glm::vec3(0.f, -1.f, 0.f)) * glm::scale(glm::mat4(1.f), glm::vec3(20.f, 1.f, 20.f));
-    loadedScenes["cube"]->Draw(cubeM, mainDrawContext);
-    loadedScenes["ground"]->Draw(groundM, mainDrawContext);
-
-    // no glTF lights in the standalone scene. range must exceed distance or the shader culls it
+    // no glTF lights in the authored scene. range must exceed distance or the shader culls it
     GPULightingData light{};
-    light.transform = glm::translate(glm::mat4(1.f), glm::vec3(0.f, 15.f, 10.f));
+    light.transform = glm::translate(glm::mat4(1.f), glm::vec3(0.f, 20.f, 15.f));
     light.color = glm::vec3(1.f, 1.f, 1.f);
-    light.intensity = 300.f;
-    light.range = 1000.f;
+    light.intensity = 400.f;
+    light.range = 2000.f;
     mainDrawContext.lights.push_back(light);
+
+    if (debugFeature)
+    {
+        debugFeature->enabled = showDebugDraw;
+        std::vector<DebugLineVertex> lines;
+        if (showDebugDraw)
+        {
+            physics.appendDebugLines(lines);
+        }
+        debugFeature->setLines(std::move(lines));
+    }
 
     auto end = std::chrono::system_clock::now();
 
@@ -418,17 +400,14 @@ void RGEngine::imGuiAddParams()
     }
     ImGui::End();
 
-    if (ImGui::Begin("box3d Physics"))
+    if (ImGui::Begin("Physics"))
     {
-        b3Pos p = b3Body_GetPosition(fallingBox);
-        ImGui::Text("cube position: (%.2f, %.2f, %.2f)", (float)p.x, (float)p.y, (float)p.z);
+        ImGui::Text("bodies: %zu", physics.bodyCount());
+        ImGui::Checkbox("Show collider wireframes", &showDebugDraw);
         ImGui::Checkbox("Pause", &physicsPaused);
         if (ImGui::Button("Re-drop"))
         {
-            b3Body_SetTransform(fallingBox, b3Pos{0.0, 8.0, 0.0}, b3Quat_identity);
-            b3Body_SetLinearVelocity(fallingBox, b3Vec3{0.f, 0.f, 0.f});
-            b3Body_SetAngularVelocity(fallingBox, b3Vec3{0.f, 0.f, 0.f});
-            b3Body_SetAwake(fallingBox, true);
+            physics.reset();
         }
     }
     ImGui::End();

@@ -24,8 +24,10 @@ namespace sgraph
         std::weak_ptr<Node> parent;
         std::vector<std::shared_ptr<Node>> children;
 
-        glm::mat4 localTransform;
-        glm::mat4 worldTransform;
+        glm::mat4 localTransform{1.f};
+        glm::mat4 worldTransform{1.f};
+
+        virtual ~Node() = default;
 
         void refreshTransform(const glm::mat4 &parentMatrix)
         {
@@ -59,6 +61,55 @@ namespace sgraph
         std::shared_ptr<LightingData> lightingData;
 
         virtual void Draw(const glm::mat4 &topMatrix, DrawContext &ctx) override;
+    };
+
+    // ---- Authored scenegraph node types ----
+    // the authored graph is authoritative; glTF is a geometry source it references
+
+    struct Scene; // full definition in vk_loader.h (glTF geometry container)
+
+    // A pure grouping node (identity transform).
+    struct GroupNode : public Node
+    {
+    };
+
+    struct TransformNode : public Node
+    {
+        void applyTranslate(const glm::vec3 &t);
+        void applyRotate(float degrees, const glm::vec3 &axis);
+        void applyScale(const glm::vec3 &s);
+    };
+
+    // A leaf node referencing an external glTF used purely as geometry.
+    struct GLTFLeafNode : public Node
+    {
+        std::string gltfName;
+        std::shared_ptr<Scene> geometry;
+
+        virtual void Draw(const glm::mat4 &topMatrix, DrawContext &ctx) override;
+    };
+
+    // no Box3D types here: physics depends on sgraph, never the reverse
+    struct RigidBodySpec
+    {
+        enum class Body
+        {
+            Static,
+            Dynamic,
+            Kinematic
+        };
+        enum class Shape
+        {
+            Box,
+            Sphere,
+            Capsule,
+            Hull
+        };
+
+        std::string nodeName;
+        Body body = Body::Static;
+        Shape shape = Shape::Box;
+        float density = 1.0f;
     };
 
 } // namespace sgraph

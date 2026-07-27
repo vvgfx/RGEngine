@@ -323,6 +323,14 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(GLTFCreatorData creatorDa
             newmesh->surfaces.push_back(newSurface);
         }
 
+        // Retain CPU-side copies (mesh-local) for physics hull building + debug wireframes.
+        newmesh->positions.reserve(vertices.size());
+        for (const Vertex &v : vertices)
+        {
+            newmesh->positions.push_back(v.position);
+        }
+        newmesh->indices = indices;
+
         newmesh->meshBuffers = gpuResourceAllocator.uploadMesh(indices, vertices);
     }
 

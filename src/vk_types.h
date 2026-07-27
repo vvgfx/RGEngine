@@ -70,6 +70,14 @@ struct GPUDrawPushConstants
     VkDeviceAddress vertexBuffer;
 };
 
+// position.w unused; vec4 avoids std430 alignment surprises with buffer_reference.
+// Must match shaders/debug/line.vert.
+struct DebugLineVertex
+{
+    glm::vec4 position;
+    glm::vec4 color;
+};
+
 enum class MaterialPass : uint8_t
 {
     MainColor,
