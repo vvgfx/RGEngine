@@ -62,7 +62,32 @@ void main()
         Lo += (kD * albedo / PI + specular) * radiance * nDotL;
     }
 
-    vec3 ambient = vec3(0.03f) * albedo * ao;
+    // directional sun light (no attenuation). sunlightDirection.xyz points from the sun
+    // toward the scene; sunlightDirection.w is intensity.
+    {
+        vec3 L = normalize(-sceneData.sunlightDirection.xyz);
+        vec3 sunRadiance = sceneData.sunlightColor.rgb * sceneData.sunlightDirection.w;
+        vec3 H = normalize(viewVec + L);
+
+        float sNDF = DistributionGGX(normal, H, roughness);
+        float sG = GeometrySmith(normal, viewVec, L, roughness);
+        vec3 sF = FresnelSchlick(clamp(dot(H, viewVec), 0.0f, 1.0f), F0);
+
+        vec3 sNum = sNDF * sG * sF;
+        float sDenom = 4.0 * max(dot(normal, viewVec), 0.0f) * max(dot(normal, L), 0.0f) + 0.001;
+        vec3 sSpec = sNum / sDenom;
+
+        vec3 sKD = (vec3(1.0f) - sF) * (1.0f - metallic);
+        float sNdotL = max(dot(normal, L), 0.0f);
+
+        Lo += (sKD * albedo / PI + sSpec) * sunRadiance * sNdotL;
+    }
+
+    // hemispheric ambient: sky tint from above, dimmer ground tint from below.
+    vec3 skyAmbient = sceneData.ambientColor.rgb;
+    vec3 groundAmbient = sceneData.ambientColor.rgb * 0.25f;
+    float hemi = clamp(normal.y * 0.5f + 0.5f, 0.0f, 1.0f);
+    vec3 ambient = mix(groundAmbient, skyAmbient, hemi) * albedo * ao;
 
     vec3 color = ambient + Lo;
 

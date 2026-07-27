@@ -6,6 +6,7 @@
 #include "rgraph/features/DebugDrawFeature.h"
 #include "rgraph/features/DeferredRenderingFeature.h"
 #include "rgraph/features/PBRShadingFeature.h"
+#include "rgraph/features/SkyboxFeature.h"
 #include "sgraph/Scenegraph.h"
 #include <chrono>
 #include <memory>
@@ -54,4 +55,15 @@ class RGEngine : public VulkanEngine
     std::chrono::steady_clock::time_point lastPhysicsTime;
     bool physicsPaused = false;
     bool showDebugDraw = true;
+
+    // --- sky + directional sun ---
+    std::shared_ptr<rgraph::SkyboxFeature> skyboxFeature;
+    glm::vec3 sunDirection{-0.35f, -1.0f, -0.25f}; // from sun toward scene
+    glm::vec3 sunColor{1.0f, 0.96f, 0.9f};
+    float sunIntensity = 3.5f;
+    float sunDiskSize = 0.02f;
+    glm::vec3 skyHorizon{0.72f, 0.80f, 0.92f};
+    glm::vec3 skyZenith{0.20f, 0.42f, 0.82f};
+    glm::vec3 skyGround{0.28f, 0.26f, 0.24f};
+    int skyMode = 1; // 0 procedural, 1 texture (your equirect sky is the default)
 };
