@@ -29,13 +29,14 @@ namespace physics
         // scale baked into the collider geometry (Box3D bodies have no scale).
         void buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &graph, const std::vector<sgraph::RigidBodySpec> &specs);
 
-        void step(float frameDt);  // fixed-timestep accumulator, 1/60 with 4 substeps
-        void sync();               // write dynamic/kinematic body poses back onto nodes
-        void reset();              // re-drop: restore initial poses, zero velocities
+        void step(float frameDt); // fixed-timestep accumulator, 1/60 with 4 substeps
+        void sync();              // write dynamic/kinematic body poses back onto nodes
+        void reset();             // re-drop: restore initial poses, zero velocities
         void cleanup();
 
-        // Append world-space wireframe line segments for every collider proxy.
-        void appendDebugLines(std::vector<DebugLineVertex> &out) const;
+        // Fill `out` with world-space collider wireframes via Box3D's own b3World_Draw
+        // callbacks (createDebugShape builds per-shape line geometry; DrawShapeFcn emits it).
+        void drawDebug(std::vector<DebugLineVertex> &out);
 
         std::size_t bodyCount() const
         {
@@ -49,17 +50,7 @@ namespace physics
             b3BodyId id{};
             sgraph::RigidBodySpec::Body type = sgraph::RigidBodySpec::Body::Static;
             sgraph::RigidBodySpec::Shape shape = sgraph::RigidBodySpec::Shape::Box;
-
             glm::vec3 bakedScale{1.f}; // scale baked into collider; re-applied to the visual on sync
-
-            // collider params in body-local space (scale already baked in) for debug draw
-            glm::vec3 boxHalf{0.5f};
-            glm::vec3 shapeCenter{0.f};
-            float radius = 0.5f;
-            glm::vec3 capA{0.f};
-            glm::vec3 capB{0.f};
-            std::shared_ptr<sgraph::Scene> geometry; // hull wireframe = source mesh edges
-
             b3Pos initialPos{};
             b3Quat initialRot{};
         };
