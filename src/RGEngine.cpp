@@ -466,7 +466,11 @@ void RGEngine::imGuiAddParams()
             ImGui::ColorEdit3("Horizon", &skyHorizon.x);
             ImGui::ColorEdit3("Zenith", &skyZenith.x);
             ImGui::ColorEdit3("Ground", &skyGround.x);
-            ImGui::SeparatorText("Shadows");
+        }
+
+        // ---- Shadows --------------------------------------------------------
+        if (ImGui::CollapsingHeader("Shadows", ImGuiTreeNodeFlags_DefaultOpen))
+        {
             ImGui::Checkbox("Enable shadows", &shadowsEnabled);
             ImGui::DragFloat("Shadow bias", &shadowBias, 0.0005f, 0.f, 0.05f, "%.4f");
         }
