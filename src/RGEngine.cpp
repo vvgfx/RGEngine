@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <chrono>
 #include <fstream>
+#include <glm/glm.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/transform.hpp>
 #include <memory>
@@ -68,6 +69,13 @@ void RGEngine::init()
     deferredFeature = std::make_shared<rgraph::DeferredRenderingFeature>(mainDrawContext, _device, sceneData, _gpuSceneDataDescriptorLayout,
                                                                          msCreateInfo, _mainDeletionQueue);
 
+    // fills background pixels, so it runs after the composite
+    skyboxFeature = std::make_shared<rgraph::SkyboxFeature>(_device, _drawImage.imageFormat, _depthImage.imageFormat, _mainDeletionQueue);
+    if (auto sky = loadImage("../physics_models/sky_18_2k.png"))
+        skyboxFeature->setSkyTexture(**sky);   // optional<shared_ptr<AllocatedImage>>
+    else
+        skyboxFeature->setSkyTexture(_whiteImage);
+
     // draws over drawImage, so it must come after the deferred passes
     debugFeature = std::make_shared<rgraph::DebugDrawFeature>(_device, sceneData, _gpuSceneDataDescriptorLayout, _drawImage.imageFormat,
                                                               _depthImage.imageFormat, _mainDeletionQueue);
@@ -80,10 +88,12 @@ void RGEngine::init()
     builder.AddTrackedImage("msaaColor", VK_IMAGE_LAYOUT_UNDEFINED, msaaColor);
     builder.AddTrackedImage("msaaDepth", VK_IMAGE_LAYOUT_UNDEFINED, msaaDepth);
 
-    builder.AddFeature(computeFeature);
+    // composite clears drawImage, so the pre-pass sky was pointless
+    // builder.AddFeature(computeFeature);
     // builder.AddFeature(PBRFeature);
     builder.AddFeature(deferredFeature);
-    builder.AddFeature(debugFeature); // overlay must be last so it draws on top
+    builder.AddFeature(skyboxFeature); // sky fills background pixels after lighting
+    builder.AddFeature(debugFeature);  // overlay must be last so it draws on top
 
     builder.SetTimestampPeriod(timestampPeriod);
 }
@@ -139,6 +149,25 @@ void RGEngine::update_scene()
     auto start = std::chrono::system_clock::now();
 
     VulkanEngine::update_scene();
+
+    // --- directional sun + sky params (VulkanEngine::update_scene set view/proj/cameraPos) ---
+    glm::vec3 sunDir = glm::normalize(sunDirection);
+    sceneData.sunlightDirection = glm::vec4(sunDir, sunIntensity);
+    sceneData.sunlightColor = glm::vec4(sunColor, 1.f);
+    sceneData.ambientColor = glm::vec4(skyZenith * 0.15f, 1.f); // ambient tracks the sky
+    if (skyboxFeature)
+    {
+        rgraph::SkyboxFeature::Params p;
+        p.invViewProj = glm::inverse(sceneData.viewproj);
+        p.cameraPos = sceneData.cameraPos;
+        p.sunDirection = glm::vec4(sunDir, sunIntensity);
+        p.sunColor = glm::vec4(sunColor, sunDiskSize);
+        p.horizon = glm::vec4(skyHorizon, 1.f);
+        p.zenith = glm::vec4(skyZenith, 1.f);
+        p.ground = glm::vec4(skyGround, 1.f);
+        p.mode = glm::ivec4(skyMode, 0, 0, 0);
+        skyboxFeature->setParams(p);
+    }
 
     // fixed timestep, so the sim is independent of frame rate
     auto now = std::chrono::steady_clock::now();
@@ -409,6 +438,22 @@ void RGEngine::imGuiAddParams()
         {
             physics.reset();
         }
+    }
+    ImGui::End();
+
+    if (ImGui::Begin("Sky / Sun"))
+    {
+        const char *modes[] = {"Procedural", "Texture"};
+        ImGui::Combo("Sky mode", &skyMode, modes, 2);
+        ImGui::SeparatorText("Sun");
+        ImGui::DragFloat3("Direction", &sunDirection.x, 0.01f, -1.f, 1.f);
+        ImGui::ColorEdit3("Color", &sunColor.x);
+        ImGui::DragFloat("Intensity", &sunIntensity, 0.1f, 0.f, 50.f);
+        ImGui::DragFloat("Disk size", &sunDiskSize, 0.001f, 0.f, 0.5f);
+        ImGui::SeparatorText("Sky gradient");
+        ImGui::ColorEdit3("Horizon", &skyHorizon.x);
+        ImGui::ColorEdit3("Zenith", &skyZenith.x);
+        ImGui::ColorEdit3("Ground", &skyGround.x);
     }
     ImGui::End();
 }

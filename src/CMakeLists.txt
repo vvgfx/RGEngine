@@ -37,6 +37,8 @@ add_executable (engine
   rgraph/features/DeferredRenderingFeature.cpp
   rgraph/features/DebugDrawFeature.h
   rgraph/features/DebugDrawFeature.cpp
+  rgraph/features/SkyboxFeature.h
+  rgraph/features/SkyboxFeature.cpp
   physics/PhysicsSystem.h
   physics/PhysicsSystem.cpp
   MaterialSystem.h
