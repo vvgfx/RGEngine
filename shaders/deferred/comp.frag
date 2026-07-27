@@ -7,6 +7,36 @@ layout(location = 0) in vec2 inUV;
 
 layout(location = 0) out vec4 outFragColor;
 
+// Directional shadow: project world pos into the sun's clip space, compare against the
+// stored shadow-map depth. Returns visibility (1 = lit, 0 = fully shadowed) with 3x3 PCF.
+float shadowVisibility(vec3 worldPos, float nDotL)
+{
+    if (sceneData.shadowParams.y < 0.5) // shadows disabled
+        return 1.0;
+
+    vec4 lc = sceneData.sunViewProj * vec4(worldPos, 1.0);
+    vec3 proj = lc.xyz / lc.w;
+    vec2 uv = proj.xy * 0.5 + 0.5;
+
+    // outside the light frustum -> treat as lit
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z < 0.0 || proj.z > 1.0)
+        return 1.0;
+
+    // slope-scaled bias to fight shadow acne on grazing surfaces
+    float bias = max(sceneData.shadowParams.x * (1.0 - nDotL), sceneData.shadowParams.x * 0.2);
+    float current = proj.z;
+
+    float vis = 0.0;
+    vec2 texel = 1.0 / vec2(textureSize(shadowMap, 0));
+    for (int x = -1; x <= 1; x++)
+        for (int y = -1; y <= 1; y++)
+        {
+            float closest = texture(shadowMap, uv + vec2(x, y) * texel).r;
+            vis += (current - bias > closest) ? 0.0 : 1.0;
+        }
+    return vis / 9.0;
+}
+
 void main()
 {
     vec3 position = texture(inPosition, vec2(inUV.s, inUV.t)).xyz;
@@ -80,7 +110,8 @@ void main()
         vec3 sKD = (vec3(1.0f) - sF) * (1.0f - metallic);
         float sNdotL = max(dot(normal, L), 0.0f);
 
-        Lo += (sKD * albedo / PI + sSpec) * sunRadiance * sNdotL;
+        float shadow = shadowVisibility(position, sNdotL);
+        Lo += (sKD * albedo / PI + sSpec) * sunRadiance * sNdotL * shadow;
     }
 
     // hemispheric ambient: sky tint from above, dimmer ground tint from below.

@@ -66,4 +66,8 @@ class RGEngine : public VulkanEngine
     glm::vec3 skyZenith{0.20f, 0.42f, 0.82f};
     glm::vec3 skyGround{0.28f, 0.26f, 0.24f};
     int skyMode = 1; // 0 procedural, 1 texture (your equirect sky is the default)
+
+    // --- directional shadow map ---
+    bool shadowsEnabled = true;
+    float shadowBias = 0.0025f;
 };

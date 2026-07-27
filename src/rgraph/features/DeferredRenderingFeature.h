@@ -46,12 +46,15 @@ namespace rgraph
 
         void transparentPass(PassExecution &passExec);
 
+        void shadowPass(PassExecution &passExec); // renders scene depth from the sun's view
+
         // images
         AllocatedImage position_gbuf;
         AllocatedImage normal_gbuf;
         AllocatedImage albedo_gbuf;
         AllocatedImage metalrough_gbuf;
         AllocatedImage depth_gbuf;
+        AllocatedImage shadowMap; // directional sun shadow map (D32, sampled)
 
         VkDescriptorSetLayout _gpuSceneDataDescriptorLayout;
         VkDescriptorSetLayout lightDescriptorSetLayout;
@@ -60,10 +63,12 @@ namespace rgraph
         MaterialPipeline geometryPipeline;
         MaterialPipeline compositePipeline;
         MaterialPipeline transparentPipeline;
+        MaterialPipeline shadowPipeline;
 
         DrawContext &drawContext;
         GPUSceneData &gpuSceneData;
 
         VkSampler defaultSampler;
+        VkSampler shadowSampler;
     };
 } // namespace rgraph
