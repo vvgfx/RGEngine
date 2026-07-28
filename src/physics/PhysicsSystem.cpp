@@ -87,10 +87,8 @@ namespace
     }
 
     // ---- Box3D debug-draw path -------------------------------------------
-    // A user "debug shape" handle: precomputed line-segment endpoints in shape-local
-    // space (consecutive pairs form a line). Built once by createDebugShape from the
-    // shape Box3D actually simulates, then transformed by the body's world transform
-    // in DrawShapeFcn each frame. Scale is already baked into the shape geometry.
+    // A user "debug shape" handle: line-segment endpoints in shape-local space
+    // (consecutive pairs form a line). Built once, transformed to world each frame.
     struct DebugShapeProxy
     {
         std::vector<glm::vec3> segments;
@@ -189,8 +187,7 @@ namespace
         return glm::vec4(((v >> 16) & 0xFF) / 255.f, ((v >> 8) & 0xFF) / 255.f, (v & 0xFF) / 255.f, 1.f);
     }
 
-    // Emit the proxy's local segments transformed into world space. Returns true to
-    // continue drawing (per the b3DebugDraw contract).
+    // Emit the proxy's local segments in world space. Returns true to keep drawing (b3DebugDraw contract).
     bool box3dDrawShape(void *userShape, b3WorldTransform transform, b3HexColor color, void *context)
     {
         auto *out = static_cast<std::vector<DebugLineVertex> *>(context);

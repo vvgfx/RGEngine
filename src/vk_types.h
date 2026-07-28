@@ -70,9 +70,8 @@ struct GPUDrawPushConstants
     VkDeviceAddress vertexBuffer;
 };
 
-// A single vertex for the debug line overlay (LINE_LIST topology). position.w is
-// unused (kept vec4 to avoid std430 alignment surprises with buffer_reference).
-// Must match the layout in shaders/debug/line.vert.
+// One vertex of the debug line overlay (LINE_LIST). position.w unused; kept vec4 to avoid
+// std430 alignment surprises with buffer_reference. Must match shaders/debug/line.vert.
 struct DebugLineVertex
 {
     glm::vec4 position;

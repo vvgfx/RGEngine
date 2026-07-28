@@ -19,9 +19,7 @@ void vkutil::transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout 
     imageBarrier.oldLayout = currentLayout;
     imageBarrier.newLayout = newLayout;
 
-    // Depth if either side of the transition is the depth-attachment layout. This covers a
-    // depth image going depth-attachment -> shader-read (e.g. a sampled shadow map), which
-    // would otherwise wrongly use the color aspect.
+    // Depth aspect if either layout is depth-attachment (e.g. a sampled shadow map); else color would be wrong.
     bool isDepth =
         (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) || (currentLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
     VkImageAspectFlags aspectMask = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
@@ -179,8 +177,7 @@ void vkutil::BarrierMerger::transition_image(VkImage image, VkImageLayout curren
     imageBarrier.oldLayout = currentLayout;
     imageBarrier.newLayout = newLayout;
 
-    // Depth if either side is the depth-attachment layout (e.g. a shadow map going
-    // depth-attachment -> shader-read). No stencil in use.
+    // Depth aspect if either layout is depth-attachment (e.g. a sampled shadow map). No stencil in use.
     bool isDepth =
         (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) || (currentLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
     VkImageAspectFlags aspectMask = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;

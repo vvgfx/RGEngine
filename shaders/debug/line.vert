@@ -16,8 +16,7 @@ layout(set = 0, binding = 0) uniform SceneData
 }
 sceneData;
 
-// Line vertices are pre-transformed into world space on the CPU; the shader only
-// applies the camera. Matches the C++ DebugLineVertex { vec4 position; vec4 color; }.
+// vertices pre-transformed to world on the CPU; matches C++ DebugLineVertex
 struct LineVertex
 {
     vec4 position;

@@ -7,8 +7,7 @@ layout(location = 0) in vec2 inUV;
 
 layout(location = 0) out vec4 outFragColor;
 
-// Directional shadow: project world pos into the sun's clip space, compare against the
-// stored shadow-map depth. Returns visibility (1 = lit, 0 = fully shadowed) with 3x3 PCF.
+// Directional shadow with 3x3 PCF; returns visibility (1 = lit, 0 = shadowed)
 float shadowVisibility(vec3 worldPos, float nDotL)
 {
     if (sceneData.shadowParams.y < 0.5) // shadows disabled
@@ -92,8 +91,7 @@ void main()
         Lo += (kD * albedo / PI + specular) * radiance * nDotL;
     }
 
-    // directional sun light (no attenuation). sunlightDirection.xyz points from the sun
-    // toward the scene; sunlightDirection.w is intensity.
+    // directional sun: sunlightDirection.xyz points sun->scene, .w = intensity
     {
         vec3 L = normalize(-sceneData.sunlightDirection.xyz);
         vec3 sunRadiance = sceneData.sunlightColor.rgb * sceneData.sunlightDirection.w;

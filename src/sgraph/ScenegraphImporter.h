@@ -14,11 +14,10 @@
 namespace sgraph
 {
 
-    // Parses the authored, plain-text scenegraph command stream. One command per line,
-    // whitespace-separated tokens, '#' begins a comment. glTF files are registered as
-    // pure geometry sources and referenced by name from leaf ('mesh') nodes; transforms
-    // accumulate down the hierarchy. 'rigidbody' commands are collected as neutral specs
-    // for the physics layer to consume (this parser has no Box3D dependency).
+    // Parses the authored plain-text scenegraph stream: one command per line,
+    // whitespace-separated tokens, '#' begins a comment. glTF files register as named
+    // geometry sources referenced by 'mesh' leaves; 'rigidbody' commands become neutral
+    // specs for the physics layer (no Box3D dependency here).
     //
     // Grammar:
     //   gltf <name> <path>

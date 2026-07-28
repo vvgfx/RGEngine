@@ -35,8 +35,7 @@ void RGEngine::init()
     creatorData._device = _device;
     creatorData.materialSystemReference = &materialSystemInstance;
 
-    // The authored scenegraph (plain-text command stream) is the authoritative scene.
-    // glTF files are pure geometry sources referenced by leaf nodes.
+    // authored scenegraph is authoritative; glTF files are just geometry sources for leaf nodes
     sgraph::ScenegraphImporter importer(creatorData);
     std::ifstream sceneStream("../scenegraphs/physics-demo.txt");
     if (!sceneStream)
@@ -92,8 +91,7 @@ void RGEngine::init()
     builder.AddTrackedImage("msaaColor", VK_IMAGE_LAYOUT_UNDEFINED, msaaColor);
     builder.AddTrackedImage("msaaDepth", VK_IMAGE_LAYOUT_UNDEFINED, msaaDepth);
 
-    // computeFeature retired: the composite pass clears drawImage, so a pre-pass sky was
-    // always overwritten. The SkyboxFeature (post-composite, background-masked) replaces it.
+    // computeFeature retired: composite clears drawImage, so SkyboxFeature (post-composite) replaces the pre-pass sky
     // builder.AddFeature(computeFeature);
     // builder.AddFeature(PBRFeature);
     builder.AddFeature(deferredFeature);
@@ -155,7 +153,7 @@ void RGEngine::update_scene()
 
     VulkanEngine::update_scene();
 
-    // --- directional sun + sky params (VulkanEngine::update_scene set view/proj/cameraPos) ---
+    // --- directional sun + sky params ---
     glm::vec3 sunDir = glm::normalize(sunDirection);
     sceneData.sunlightDirection = glm::vec4(sunDir, sunIntensity);
     sceneData.sunlightColor = glm::vec4(sunColor, 1.f);
@@ -200,8 +198,7 @@ void RGEngine::update_scene()
         scenegraph->getRoot()->Draw(glm::mat4{1.f}, mainDrawContext);
     }
 
-    // The authored scene has no glTF lights, so supply one in code.
-    // (intensity must be large: attenuation is 1/dist^2; range must exceed distance or the shader culls it.)
+    // authored scene has no glTF lights, so supply one (high intensity for 1/dist^2 falloff; range must exceed distance or the shader culls it)
     GPULightingData light{};
     light.transform = glm::translate(glm::mat4(1.f), glm::vec3(0.f, 20.f, 15.f));
     light.color = glm::vec3(1.f, 1.f, 1.f);
@@ -383,7 +380,7 @@ void RGEngine::draw()
 
 void RGEngine::imGuiAddParams()
 {
-    // A single control panel docked to the right, one collapsible section per group.
+    // single control panel, one collapsing section per group
     const ImGuiIO &io = ImGui::GetIO();
     const float panelWidth = 340.f;
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - panelWidth - 10.f, 10.f), ImGuiCond_FirstUseEver);

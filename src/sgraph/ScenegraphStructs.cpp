@@ -102,9 +102,8 @@ void sgraph::TransformNode::applyScale(const glm::vec3 &s)
 
 void sgraph::GLTFLeafNode::Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 {
-    // The referenced glTF is pure geometry: draw it at this leaf's accumulated
-    // world transform (worldTransform is set by refreshTransform, or overwritten
-    // by the physics sync for bodies driven by the simulation).
+    // Draw the referenced geometry at this leaf's world transform (set by
+    // refreshTransform, or overwritten by physics sync for simulated bodies).
     if (geometry)
     {
         geometry->Draw(topMatrix * worldTransform, ctx);

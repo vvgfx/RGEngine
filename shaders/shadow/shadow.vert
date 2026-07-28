@@ -2,8 +2,7 @@
 
 #extension GL_EXT_buffer_reference : require
 
-// Scene data at set 0 (same buffer as the deferred passes). We only need sunViewProj,
-// but std140 offsets require declaring the full prefix up to it.
+// full SceneData prefix declared for std140 offsets; only sunViewProj is used
 layout(set = 0, binding = 0) uniform SceneData
 {
     mat4 view;

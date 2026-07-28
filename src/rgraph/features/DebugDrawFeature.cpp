@@ -68,8 +68,7 @@ void DebugDrawFeature::Register(Rendergraph *builder)
         "Debug Overlay",
         [this](Pass &pass)
         {
-            // clear=nullptr -> loadOp=LOAD, so the composited scene is preserved and we
-            // draw the wireframes over it (storeOp is always STORE).
+            // clear=nullptr -> loadOp=LOAD: preserve the composited scene and draw over it
             pass.AddColorAttachment("drawImage", false, nullptr);
             pass.AddDepthStencilAttachment("depth_gbuf", false, nullptr);
             pass.CreatesBuffer("debugSceneBuffer", sizeof(GPUSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
@@ -81,7 +80,6 @@ void DebugDrawFeature::Register(Rendergraph *builder)
 
 void DebugDrawFeature::draw(PassExecution &passExec)
 {
-    // scene UBO -> set 0
     AllocatedBuffer sceneBuf = passExec.allocatedBuffers["debugSceneBuffer"];
     *(GPUSceneData *)sceneBuf.info.pMappedData = sceneData;
     VkDescriptorSet set0 = passExec.frameDescriptor->allocate(passExec._device, _gpuSceneDataDescriptorLayout);
@@ -89,7 +87,6 @@ void DebugDrawFeature::draw(PassExecution &passExec)
     writer.write_buffer(0, sceneBuf.buffer, sizeof(GPUSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     writer.update_set(passExec._device, set0);
 
-    // upload the line vertices into the transient buffer and grab its device address
     AllocatedBuffer lineBuf = passExec.allocatedBuffers["debugLineBuffer"];
     std::size_t count = std::min(lineVerts.size(), MAX_VERTS);
     std::memcpy(lineBuf.info.pMappedData, lineVerts.data(), count * sizeof(DebugLineVertex));

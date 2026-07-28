@@ -82,8 +82,7 @@ rgraph::DeferredRenderingFeature::DeferredRenderingFeature(DrawContext &drawCont
 void rgraph::DeferredRenderingFeature::Register(rgraph::Rendergraph *builder)
 {
 
-    // Shadow pass: render scene depth from the sun's viewpoint into the shadow map.
-    // Runs first so the composite can sample it. Standard depth (far = 1.0).
+    // Shadow pass: scene depth from the sun's view; runs first so the composite can sample it.
     builder->AddGraphicsPass(
         "Shadow Pass",
         [](Pass &pass)
@@ -611,9 +610,7 @@ void rgraph::DeferredRenderingFeature::createPipelines(MaterialSystemCreateInfo 
     vkDestroyShaderModule(materialSystemCreateInfo._device, meshVertexShader, nullptr);
     vkDestroyShaderModule(materialSystemCreateInfo._device, meshFragShader, nullptr);
 
-    // Shadow pipeline: depth-only, from the sun's view. Reuses the vertex-pull push
-    // constant (modelMatrix + vertexBuffer); scene set 0 supplies sunViewProj. No material
-    // set, no color attachments. Standard depth (LESS_OR_EQUAL), independent of reverse-Z.
+    // Shadow pipeline: depth-only from the sun's view; scene set 0 supplies sunViewProj.
     VkShaderModule shadowVert;
     if (!vkutil::load_shader_module("../shaders/shadow/shadow.vert.spv", materialSystemCreateInfo._device, &shadowVert))
         fmt::println("Error when building the shadow vertex shader\n");
@@ -724,8 +721,7 @@ void rgraph::DeferredRenderingFeature::createImages(DeletionQueue &delQueue)
             _gpuResourceAllocator.destroy_image(depth_gbuf.image, depth_gbuf.allocation);
         });
 
-    // shadow map: same as depth_gbuf but ALSO sampled, so the composite can read it.
-    // (Rendered at window resolution: the render graph's extent is global.)
+    // shadow map: like depth_gbuf but also SAMPLED so the composite can read it.
     shadowMap.imageFormat = VK_FORMAT_D32_SFLOAT;
     shadowMap.imageExtent = imageExtent;
     VkImageUsageFlags shadowUsages = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;

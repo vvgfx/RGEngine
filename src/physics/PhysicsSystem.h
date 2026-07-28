@@ -14,19 +14,16 @@ namespace sgraph
 
 namespace physics
 {
-    // Owns the Box3D world and the mapping from authored scenegraph nodes to rigid
-    // bodies. Deliberately one-directional: physics depends on sgraph, never the
-    // reverse. Future body-to-body connections become Box3D joints kept here, never
-    // scenegraph reparenting.
+    // Owns the Box3D world and the authored-node -> rigid-body mapping.
+    // One-directional: physics depends on sgraph, never the reverse.
     class PhysicsSystem
     {
       public:
         void init();
 
-        // Build bodies from the parsed rigidbody specs. Requires the graph's world
-        // transforms to already be up to date (call root->refreshTransform first):
-        // each body's initial pose is the decomposed WORLD transform of its node, with
-        // scale baked into the collider geometry (Box3D bodies have no scale).
+        // Graph world transforms must be current (call root->refreshTransform first):
+        // each body's initial pose is its node's decomposed world transform, with
+        // scale baked into the collider (Box3D bodies have no scale).
         void buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &graph, const std::vector<sgraph::RigidBodySpec> &specs);
 
         void step(float frameDt); // fixed-timestep accumulator, 1/60 with 4 substeps
@@ -34,8 +31,7 @@ namespace physics
         void reset();             // re-drop: restore initial poses, zero velocities
         void cleanup();
 
-        // Fill `out` with world-space collider wireframes via Box3D's own b3World_Draw
-        // callbacks (createDebugShape builds per-shape line geometry; DrawShapeFcn emits it).
+        // Fill `out` with world-space collider wireframes via b3World_Draw callbacks.
         void drawDebug(std::vector<DebugLineVertex> &out);
 
         std::size_t bodyCount() const

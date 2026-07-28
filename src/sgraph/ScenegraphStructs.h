@@ -64,9 +64,8 @@ namespace sgraph
     };
 
     // ---- Authored scenegraph node types (physics PoC) ------------------------
-    // The authored scenegraph is the authoritative scene. glTF is demoted to a pure
-    // geometry source referenced by a GLTFLeafNode. Transforms accumulate down the
-    // hierarchy via Node::refreshTransform (worldTransform = parent * local).
+    // The authored graph is authoritative; glTF is a pure geometry source referenced
+    // by a GLTFLeafNode. Transforms accumulate via refreshTransform (world = parent * local).
 
     struct Scene; // full definition in vk_loader.h (glTF geometry container)
 
@@ -93,9 +92,8 @@ namespace sgraph
         virtual void Draw(const glm::mat4 &topMatrix, DrawContext &ctx) override;
     };
 
-    // Parsed 'rigidbody' command. Neutral authoring data consumed by the physics
-    // layer -- deliberately free of any Box3D types to keep the sgraph<->physics
-    // boundary clean (physics depends on sgraph, never the reverse).
+    // Parsed 'rigidbody' command. Neutral authoring data (no Box3D types) so the
+    // physics layer depends on sgraph, never the reverse.
     struct RigidBodySpec
     {
         enum class Body
