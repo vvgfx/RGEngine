@@ -16,6 +16,7 @@ layout(set = 0, binding = 0) uniform SceneData
 }
 sceneData;
 
+// vertices pre-transformed to world on the CPU; matches C++ DebugLineVertex
 struct LineVertex
 {
     vec4 position;

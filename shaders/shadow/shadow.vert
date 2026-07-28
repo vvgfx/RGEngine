@@ -2,7 +2,7 @@
 
 #extension GL_EXT_buffer_reference : require
 
-// the shadow vertex shader reads sunViewProj from set 0
+// full SceneData prefix declared for std140 offsets; only sunViewProj is used
 layout(set = 0, binding = 0) uniform SceneData
 {
     mat4 view;

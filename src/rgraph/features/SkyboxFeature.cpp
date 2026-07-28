@@ -90,7 +90,6 @@ void SkyboxFeature::Register(Rendergraph *builder)
 
 void SkyboxFeature::draw(PassExecution &passExec)
 {
-    // params UBO -> set 0
     AllocatedBuffer paramsBuf = passExec.allocatedBuffers["skyParamsBuffer"];
     std::memcpy(paramsBuf.info.pMappedData, &params, sizeof(Params));
     VkDescriptorSet set0 = passExec.frameDescriptor->allocate(passExec._device, skyUboLayout);
@@ -100,7 +99,6 @@ void SkyboxFeature::draw(PassExecution &passExec)
         w.update_set(passExec._device, set0);
     }
 
-    // normal G-buffer (mask) + sky texture -> set 1
     AllocatedImage normalImg = passExec.allocatedImages["normal_gbuf"];
     VkDescriptorSet set1 = passExec.frameDescriptor->allocate(passExec._device, inputLayout);
     {

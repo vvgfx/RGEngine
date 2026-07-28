@@ -80,7 +80,6 @@ void DebugDrawFeature::Register(Rendergraph *builder)
 
 void DebugDrawFeature::draw(PassExecution &passExec)
 {
-    // scene UBO -> set 0
     AllocatedBuffer sceneBuf = passExec.allocatedBuffers["debugSceneBuffer"];
     *(GPUSceneData *)sceneBuf.info.pMappedData = sceneData;
     VkDescriptorSet set0 = passExec.frameDescriptor->allocate(passExec._device, _gpuSceneDataDescriptorLayout);
@@ -88,7 +87,6 @@ void DebugDrawFeature::draw(PassExecution &passExec)
     writer.write_buffer(0, sceneBuf.buffer, sizeof(GPUSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     writer.update_set(passExec._device, set0);
 
-    // upload the line vertices into the transient buffer and grab its device address
     AllocatedBuffer lineBuf = passExec.allocatedBuffers["debugLineBuffer"];
     std::size_t count = std::min(lineVerts.size(), MAX_VERTS);
     std::memcpy(lineBuf.info.pMappedData, lineVerts.data(), count * sizeof(DebugLineVertex));

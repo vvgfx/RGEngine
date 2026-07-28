@@ -91,7 +91,7 @@ void main()
         Lo += (kD * albedo / PI + specular) * radiance * nDotL;
     }
 
-    // sunlightDirection.xyz points sun->scene, .w = intensity
+    // directional sun: sunlightDirection.xyz points sun->scene, .w = intensity
     {
         vec3 L = normalize(-sceneData.sunlightDirection.xyz);
         vec3 sunRadiance = sceneData.sunlightColor.rgb * sceneData.sunlightDirection.w;

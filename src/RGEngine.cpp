@@ -35,7 +35,7 @@ void RGEngine::init()
     creatorData._device = _device;
     creatorData.materialSystemReference = &materialSystemInstance;
 
-    // authored scenegraph is authoritative; glTF files are geometry sources it references
+    // authored scenegraph is authoritative; glTF files are just geometry sources for leaf nodes
     sgraph::ScenegraphImporter importer(creatorData);
     std::ifstream sceneStream("../scenegraphs/physics-demo.txt");
     if (!sceneStream)
@@ -151,7 +151,7 @@ void RGEngine::update_scene()
 
     VulkanEngine::update_scene();
 
-    // --- directional sun + sky params (VulkanEngine::update_scene set view/proj/cameraPos) ---
+    // --- directional sun + sky params ---
     glm::vec3 sunDir = glm::normalize(sunDirection);
     sceneData.sunlightDirection = glm::vec4(sunDir, sunIntensity);
     sceneData.sunlightColor = glm::vec4(sunColor, 1.f);
@@ -376,7 +376,6 @@ void RGEngine::draw()
 
 void RGEngine::imGuiAddParams()
 {
-    // A single control panel docked to the right, one collapsible section per group.
     const ImGuiIO &io = ImGui::GetIO();
     const float panelWidth = 340.f;
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - panelWidth - 10.f, 10.f), ImGuiCond_FirstUseEver);
