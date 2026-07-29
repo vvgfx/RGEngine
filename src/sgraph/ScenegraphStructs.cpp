@@ -85,29 +85,17 @@ void sgraph::LightNode::Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 
 // ---- Authored scenegraph node types --------------------------------------
 
-void sgraph::TransformNode::applyTranslate(const glm::vec3 &t)
+void sgraph::Node::applyTranslate(const glm::vec3 &t)
 {
     localTransform = localTransform * glm::translate(glm::mat4(1.f), t);
 }
 
-void sgraph::TransformNode::applyRotate(float degrees, const glm::vec3 &axis)
+void sgraph::Node::applyRotate(float degrees, const glm::vec3 &axis)
 {
     localTransform = localTransform * glm::rotate(glm::mat4(1.f), glm::radians(degrees), glm::normalize(axis));
 }
 
-void sgraph::TransformNode::applyScale(const glm::vec3 &s)
+void sgraph::Node::applyScale(const glm::vec3 &s)
 {
     localTransform = localTransform * glm::scale(glm::mat4(1.f), s);
-}
-
-void sgraph::GLTFLeafNode::Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
-{
-    // Draw the referenced geometry at this leaf's world transform (set by
-    // refreshTransform, or overwritten by physics sync for simulated bodies).
-    if (geometry)
-    {
-        geometry->Draw(topMatrix * worldTransform, ctx);
-    }
-    // A leaf may still parent children in the authored graph.
-    Node::Draw(topMatrix, ctx);
 }

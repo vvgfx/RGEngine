@@ -35,7 +35,7 @@ void RGEngine::init()
     creatorData._device = _device;
     creatorData.materialSystemReference = &materialSystemInstance;
 
-    // authored scenegraph is authoritative; glTF files are just geometry sources for leaf nodes
+    // authored scenegraph is authoritative; each glTF file enters it as a Scene node
     sgraph::ScenegraphImporter importer(creatorData);
     std::ifstream sceneStream("../scenegraphs/physics-demo.txt");
     if (!sceneStream)

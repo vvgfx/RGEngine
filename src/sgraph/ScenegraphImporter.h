@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace sgraph
@@ -16,13 +17,12 @@ namespace sgraph
 
     // Parses the authored plain-text scenegraph stream: one command per line,
     // whitespace-separated tokens, '#' begins a comment. glTF files register as named
-    // geometry sources referenced by 'mesh' leaves; 'rigidbody' commands become neutral
-    // specs for the physics layer (no Box3D dependency here).
+    // geometry sources, which 'mesh' then binds into the graph as Scene nodes; 'rigidbody'
+    // commands become neutral specs for the physics layer (no Box3D dependency here).
     //
     // Grammar:
     //   gltf <name> <path>
-    //   group <var>
-    //   transform <var>
+    //   group|node|transform <var>                       equivalent spellings; all make a plain Node
     //   translate <var> <x> <y> <z>
     //   rotate <var> <degrees> <ax> <ay> <az>
     //   scale <var> <sx> <sy> <sz>
@@ -55,10 +55,8 @@ namespace sgraph
 
                 if (cmd == "gltf")
                     parseGLTF(tok);
-                else if (cmd == "group" || cmd == "node")
-                    parseGroup(tok);
-                else if (cmd == "transform")
-                    parseTransform(tok);
+                else if (cmd == "group" || cmd == "node" || cmd == "transform")
+                    parseNode(tok);
                 else if (cmd == "translate")
                     parseTranslate(tok);
                 else if (cmd == "rotate")
@@ -108,20 +106,13 @@ namespace sgraph
             geometries[tok[1]] = gltf.value();
         }
 
-        // group <var>
-        void parseGroup(const std::vector<std::string> &tok)
+        // group|node|transform <var> : a plain node. It can hold children and carry a transform, so grouping and
+        // transforming are the same thing; the three spellings are kept for authoring readability.
+        void parseNode(const std::vector<std::string> &tok)
         {
             if (tok.size() < 2)
                 return;
-            nodes[tok[1]] = std::make_shared<GroupNode>();
-        }
-
-        // transform <var>
-        void parseTransform(const std::vector<std::string> &tok)
-        {
-            if (tok.size() < 2)
-                return;
-            nodes[tok[1]] = std::make_shared<TransformNode>();
+            nodes[tok[1]] = std::make_shared<Node>();
         }
 
         // translate <var> <x> <y> <z>
@@ -132,7 +123,7 @@ namespace sgraph
                 std::cout << "translate: expected <var> <x> <y> <z>\n";
                 return;
             }
-            if (auto t = getTransform(tok[1]))
+            if (auto t = asNode(tok[1]))
                 t->applyTranslate({std::stof(tok[2]), std::stof(tok[3]), std::stof(tok[4])});
         }
 
@@ -144,7 +135,7 @@ namespace sgraph
                 std::cout << "rotate: expected <var> <degrees> <ax> <ay> <az>\n";
                 return;
             }
-            if (auto t = getTransform(tok[1]))
+            if (auto t = asNode(tok[1]))
                 t->applyRotate(std::stof(tok[2]), {std::stof(tok[3]), std::stof(tok[4]), std::stof(tok[5])});
         }
 
@@ -156,11 +147,12 @@ namespace sgraph
                 std::cout << "scale: expected <var> <sx> <sy> <sz>\n";
                 return;
             }
-            if (auto t = getTransform(tok[1]))
+            if (auto t = asNode(tok[1]))
                 t->applyScale({std::stof(tok[2]), std::stof(tok[3]), std::stof(tok[4])});
         }
 
-        // mesh <var> <gltfName> : a leaf node referencing a registered geometry.
+        // mesh <var> <gltfName> : bind a registered glTF into the graph under <var>.
+        // One Scene, one place in the graph - so binding the same geometry twice is an error, not sharing.
         void parseMesh(const std::vector<std::string> &tok)
         {
             if (tok.size() < 3)
@@ -168,13 +160,19 @@ namespace sgraph
                 std::cout << "mesh: expected <var> <gltfName>\n";
                 return;
             }
-            auto leaf = std::make_shared<GLTFLeafNode>();
-            leaf->gltfName = tok[2];
-            if (geometries.contains(tok[2]))
-                leaf->geometry = geometries[tok[2]];
-            else
+            auto it = geometries.find(tok[2]);
+            if (it == geometries.end())
+            {
                 std::cout << "mesh: unknown gltf geometry '" << tok[2] << "'\n";
-            nodes[tok[1]] = leaf;
+                return;
+            }
+            if (!boundGeometries.insert(tok[2]).second)
+            {
+                std::cout << "mesh: geometry '" << tok[2] << "' is already bound to a node; register it under a "
+                             "second 'gltf' name to place it twice\n";
+                return;
+            }
+            nodes[tok[1]] = it->second;
         }
 
         // add-child <child> <parent>
@@ -246,11 +244,11 @@ namespace sgraph
         }
 
         // ---- helpers ---------------------------------------------------------
-        std::shared_ptr<TransformNode> getTransform(const std::string &name)
+        std::shared_ptr<Node> asNode(const std::string &name)
         {
-            auto t = std::dynamic_pointer_cast<TransformNode>(getNode(name));
+            auto t = std::dynamic_pointer_cast<Node>(getNode(name));
             if (!t)
-                std::cout << "'" << name << "' is not a transform node\n";
+                std::cout << "'" << name << "' is not a node\n";
             return t;
         }
 
@@ -290,6 +288,7 @@ namespace sgraph
         GLTFCreatorData &creatorData;
         std::unordered_map<std::string, std::shared_ptr<INode>> nodes;
         std::unordered_map<std::string, std::shared_ptr<Scene>> geometries;
+        std::unordered_set<std::string> boundGeometries; // geometry names already placed in the graph by 'mesh'
         std::vector<RigidBodySpec> physicsSpecs;
         std::shared_ptr<INode> root;
     };

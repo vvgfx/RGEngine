@@ -27,7 +27,7 @@ namespace physics
         void buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &graph, const std::vector<sgraph::RigidBodySpec> &specs);
 
         void step(float frameDt); // fixed-timestep accumulator, 1/60 with 4 substeps
-        void sync();              // write dynamic/kinematic body poses back onto nodes
+        void sync();              // box3d -> scenegraph. Writes localTransform, so later rebakes agree with it.
         void reset();             // re-drop: restore initial poses, zero velocities
         void cleanup();
 

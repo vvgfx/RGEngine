@@ -86,8 +86,11 @@ namespace sgraph
     /**
      * This class has a 1:1 relation with a GLTF file. The idea is that it is self-contained. It holds its' own data,
      * and all the data is cleaned up when the node is destroyed.
+     *
+     * It is a Node, so the file's top-level nodes are just its children. One parent and one position, so a
+     * Scene can only be placed in the graph once.
      */
-    struct Scene : public INode
+    struct Scene : public Node
     {
         // storage for all the data on a given glTF file
 
@@ -97,8 +100,7 @@ namespace sgraph
         std::unordered_map<std::string, std::shared_ptr<GLTFMaterial>> materials;
         std::unordered_map<std::string, std::shared_ptr<LightingData>> lightingData;
 
-        // nodes that dont have a parent, for iterating through the file in tree order
-        std::vector<std::shared_ptr<Node>> topNodes;
+        // The file's parentless nodes live in Node::children.
 
         std::vector<VkSampler> samplers;
 
@@ -118,12 +120,12 @@ namespace sgraph
 
         GLTFCreatorData creator;
 
-        ~Scene()
+        ~Scene() override
         {
             clearAll();
         };
 
-        virtual void Draw(const glm::mat4 &topMatrix, DrawContext &ctx);
+        // Draw is inherited from Node: recurse into children (the file's top-level nodes).
 
         std::string name;
 

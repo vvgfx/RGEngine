@@ -24,6 +24,8 @@ namespace sgraph
         std::weak_ptr<Node> parent;
         std::vector<std::shared_ptr<Node>> children;
 
+        // localTransform is the pose. worldTransform is only ever parentWorld * localTransform, cached so nothing
+        // walks the ancestor chain - read that one everywhere downstream.
         glm::mat4 localTransform{1.f};
         glm::mat4 worldTransform{1.f};
 
@@ -32,11 +34,16 @@ namespace sgraph
         void refreshTransform(const glm::mat4 &parentMatrix)
         {
             worldTransform = parentMatrix * localTransform;
-            for (auto c : children)
+            for (auto &c : children)
             {
                 c->refreshTransform(worldTransform);
             }
         }
+
+        // Compose onto localTransform. Each post-multiplies, so authored order is TRS as written.
+        void applyTranslate(const glm::vec3 &t);
+        void applyRotate(float degrees, const glm::vec3 &axis);
+        void applyScale(const glm::vec3 &s);
 
         virtual void Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
         {
@@ -64,33 +71,8 @@ namespace sgraph
     };
 
     // ---- Authored scenegraph node types (physics PoC) ------------------------
-    // The authored graph is authoritative; glTF is a pure geometry source referenced
-    // by a GLTFLeafNode. Transforms accumulate via refreshTransform (world = parent * local).
-
-    struct Scene; // full definition in vk_loader.h (glTF geometry container)
-
-    // A pure grouping node (identity transform).
-    struct GroupNode : public Node
-    {
-    };
-
-    // A transform node whose local matrix is composed from translate/rotate/scale
-    // commands (each post-multiplied on, so authored order is TRS as written).
-    struct TransformNode : public Node
-    {
-        void applyTranslate(const glm::vec3 &t);
-        void applyRotate(float degrees, const glm::vec3 &axis);
-        void applyScale(const glm::vec3 &s);
-    };
-
-    // A leaf node referencing an external glTF used purely as geometry.
-    struct GLTFLeafNode : public Node
-    {
-        std::string gltfName;
-        std::shared_ptr<Scene> geometry;
-
-        virtual void Draw(const glm::mat4 &topMatrix, DrawContext &ctx) override;
-    };
+    // The authored graph is authoritative; a glTF file enters it as a Scene node (vk_loader.h).
+    // Only nodes carrying extra data subclass Node - grouping and transforming are what a plain Node already does.
 
     // Parsed 'rigidbody' command. Neutral authoring data (no Box3D types) so the
     // physics layer depends on sgraph, never the reverse.

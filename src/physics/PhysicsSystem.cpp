@@ -236,9 +236,8 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
             fmt::print("physics: rigidbody references unknown node '{}'\n", spec.nodeName);
             continue;
         }
-        auto node = std::dynamic_pointer_cast<sgraph::Node>(opt.value());
-        auto leaf = std::dynamic_pointer_cast<sgraph::GLTFLeafNode>(opt.value());
-        if (!node || !leaf || !leaf->geometry)
+        auto scene = std::dynamic_pointer_cast<sgraph::Scene>(opt.value());
+        if (!scene)
         {
             fmt::print("physics: node '{}' has no glTF geometry to derive a collider from\n", spec.nodeName);
             continue;
@@ -247,10 +246,10 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
         // pose from the node's accumulated world transform; bake scale into geometry
         glm::vec3 t, s;
         glm::quat r;
-        decompose(node->worldTransform, t, r, s);
+        decompose(scene->worldTransform, t, r, s);
 
         Body body;
-        body.node = node;
+        body.node = scene;
         body.type = spec.body;
         body.shape = spec.shape;
         body.bakedScale = s;
@@ -267,7 +266,7 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
         sd.density = spec.density;
 
         glm::vec3 mn, mx;
-        geometryBounds(*leaf->geometry, mn, mx);
+        geometryBounds(*scene, mn, mx);
         glm::vec3 center = 0.5f * (mn + mx) * s; // scaled, body-local
         glm::vec3 half = 0.5f * (mx - mn) * s;   // scaled half-extents
 
@@ -314,7 +313,7 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
         case sgraph::RigidBodySpec::Shape::Hull:
         {
             std::vector<b3Vec3> pts;
-            for (const auto &entry : leaf->geometry->meshes)
+            for (const auto &entry : scene->meshes)
                 for (const glm::vec3 &p : entry.second->positions)
                     pts.push_back(b3Vec3{p.x * s.x, p.y * s.y, p.z * s.z});
             if (pts.empty())
@@ -360,8 +359,17 @@ void PhysicsSystem::sync()
         glm::quat rot(q.s, q.v.x, q.v.y, q.v.z); // glm order (w,x,y,z)
         // re-apply the baked scale so the visual mesh keeps its authored size
         glm::mat4 m = glm::translate(glm::mat4(1.f), pos) * glm::toMat4(rot) * glm::scale(glm::mat4(1.f), b.bakedScale);
-        if (b.node)
-            b.node->worldTransform = m;
+        if (!b.node)
+            continue;
+
+        glm::mat4 parentWorld{1.f};
+        if (auto parentNode = b.node->parent.lock())
+            parentWorld = parentNode->worldTransform;
+
+        // box3d works in world space, localTransform doesn't - hence the inverse. Deliberately not cached: it
+        // would go stale the moment anything above this body moves.
+        b.node->localTransform = glm::inverse(parentWorld) * m;
+        b.node->refreshTransform(parentWorld);
     }
 }
 
