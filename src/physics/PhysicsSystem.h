@@ -45,7 +45,6 @@ namespace physics
             std::shared_ptr<sgraph::Node> node; // authored node this body drives
             b3BodyId id{};
             sgraph::RigidBodySpec::Body type = sgraph::RigidBodySpec::Body::Static;
-            sgraph::RigidBodySpec::Shape shape = sgraph::RigidBodySpec::Shape::Box;
             glm::vec3 bakedScale{1.f}; // scale baked into collider; re-applied to the visual on sync
             b3Pos initialPos{};
             b3Quat initialRot{};

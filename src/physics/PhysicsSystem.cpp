@@ -6,8 +6,8 @@
 #include <cmath>
 #include <cstdint>
 #include <fmt/core.h>
-#include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
 
 using namespace physics;
@@ -109,7 +109,9 @@ namespace
             float th = t0 + (t1 - t0) * (float)i / (float)segs;
             glm::vec3 p = c + r * (std::cos(th) * e1 + std::sin(th) * e2);
             if (i > 0)
+            {
                 pushSeg(s, prev, p);
+            }
             prev = p;
         }
     }
@@ -133,7 +135,9 @@ namespace
                 {
                     int twin = edges[i].twin;
                     if (i < twin)
+                    {
                         pushSeg(proxy->segments, toGlm(pts[edges[i].origin]), toGlm(pts[edges[twin].origin]));
+                    }
                 }
             }
             break;
@@ -162,7 +166,9 @@ namespace
             arcLocal(proxy->segments, a, u, v, r, 0.f, TWO_PI, 20); // ring at cap A
             arcLocal(proxy->segments, b, u, v, r, 0.f, TWO_PI, 20); // ring at cap B
             for (const glm::vec3 &d : {u, -u, v, -v})
+            {
                 pushSeg(proxy->segments, a + r * d, b + r * d); // connectors
+            }
             arcLocal(proxy->segments, a, u, axis, r, 0.f, PI, 12); // cap A domes
             arcLocal(proxy->segments, a, v, axis, r, 0.f, PI, 12);
             arcLocal(proxy->segments, b, u, -axis, r, 0.f, PI, 12); // cap B domes
@@ -193,7 +199,9 @@ namespace
         auto *out = static_cast<std::vector<DebugLineVertex> *>(context);
         auto *proxy = static_cast<DebugShapeProxy *>(userShape);
         if (!out || !proxy)
+        {
             return true;
+        }
 
         glm::vec3 p((float)transform.p.x, (float)transform.p.y, (float)transform.p.z);
         glm::quat q(transform.q.s, transform.q.v.x, transform.q.v.y, transform.q.v.z);
@@ -218,7 +226,6 @@ void PhysicsSystem::init()
     // Wire the debug-shape lifecycle so b3World_Draw can render collider wireframes.
     def.createDebugShape = &box3dCreateDebugShape;
     def.destroyDebugShape = &box3dDestroyDebugShape;
-    def.userDebugShapeContext = nullptr;
     world = b3CreateWorld(&def);
     initialized = true;
 }
@@ -226,7 +233,9 @@ void PhysicsSystem::init()
 void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &graph, const std::vector<sgraph::RigidBodySpec> &specs)
 {
     if (!initialized)
+    {
         init();
+    }
 
     for (const sgraph::RigidBodySpec &spec : specs)
     {
@@ -251,7 +260,6 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
         Body body;
         body.node = scene;
         body.type = spec.body;
-        body.shape = spec.shape;
         body.bakedScale = s;
 
         b3BodyDef bd = b3DefaultBodyDef();
@@ -263,12 +271,20 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
         body.initialRot = bd.rotation;
 
         b3ShapeDef sd = b3DefaultShapeDef();
-        sd.density = spec.density;
+        if (spec.body != sgraph::RigidBodySpec::Body::Static)
+        {
+            sd.density = spec.density; // static bodies have no mass to derive from it
+        }
 
-        glm::vec3 mn, mx;
-        geometryBounds(*scene, mn, mx);
-        glm::vec3 center = 0.5f * (mn + mx) * s; // scaled, body-local
-        glm::vec3 half = 0.5f * (mx - mn) * s;   // scaled half-extents
+        // Box, sphere and capsule are sized from the geometry's AABB. A hull is built from the raw vertices.
+        glm::vec3 center{0.f}, half{0.5f};
+        if (spec.shape != sgraph::RigidBodySpec::Shape::Hull)
+        {
+            glm::vec3 mn, mx;
+            geometryBounds(*scene, mn, mx);
+            center = 0.5f * (mn + mx) * s; // scaled, body-local
+            half = 0.5f * (mx - mn) * s;   // scaled half-extents
+        }
 
         switch (spec.shape)
         {
@@ -291,13 +307,21 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
             // dominant axis = largest scaled half-extent; radius = larger of the other two
             int axis = 0;
             if (half.y > half[axis])
+            {
                 axis = 1;
+            }
             if (half.z > half[axis])
+            {
                 axis = 2;
+            }
             float rad = 0.f;
             for (int i = 0; i < 3; i++)
+            {
                 if (i != axis)
+                {
                     rad = std::max(rad, half[i]);
+                }
+            }
             glm::vec3 dir(0.f);
             dir[axis] = 1.f;
             float seg = std::max(half[axis] - rad, 0.f); // half-distance between hemisphere centers
@@ -314,8 +338,12 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
         {
             std::vector<b3Vec3> pts;
             for (const auto &entry : scene->meshes)
+            {
                 for (const glm::vec3 &p : entry.second->positions)
+                {
                     pts.push_back(b3Vec3{p.x * s.x, p.y * s.y, p.z * s.z});
+                }
+            }
             if (pts.empty())
             {
                 fmt::print("physics: hull node '{}' has no vertices\n", spec.nodeName);
@@ -337,7 +365,9 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
 void PhysicsSystem::step(float frameDt)
 {
     if (!initialized)
+    {
         return;
+    }
     accumulator = std::min(accumulator + frameDt, 0.25f); // clamp: anti spiral-of-death
     const float fixedDt = 1.0f / 60.0f;
     while (accumulator >= fixedDt)
@@ -352,7 +382,9 @@ void PhysicsSystem::sync()
     for (Body &b : bodies)
     {
         if (b.type == sgraph::RigidBodySpec::Body::Static)
+        {
             continue;
+        }
         b3Pos p = b3Body_GetPosition(b.id);
         b3Quat q = b3Body_GetRotation(b.id);
         glm::vec3 pos((float)p.x, (float)p.y, (float)p.z);
@@ -360,11 +392,15 @@ void PhysicsSystem::sync()
         // re-apply the baked scale so the visual mesh keeps its authored size
         glm::mat4 m = glm::translate(glm::mat4(1.f), pos) * glm::toMat4(rot) * glm::scale(glm::mat4(1.f), b.bakedScale);
         if (!b.node)
+        {
             continue;
+        }
 
         glm::mat4 parentWorld{1.f};
         if (auto parentNode = b.node->parent.lock())
+        {
             parentWorld = parentNode->worldTransform;
+        }
 
         // box3d works in world space, localTransform doesn't - hence the inverse. Deliberately not cached: it
         // would go stale the moment anything above this body moves.
@@ -378,7 +414,9 @@ void PhysicsSystem::reset()
     for (Body &b : bodies)
     {
         if (b.type == sgraph::RigidBodySpec::Body::Static)
+        {
             continue;
+        }
         b3Body_SetTransform(b.id, b.initialPos, b.initialRot);
         b3Body_SetLinearVelocity(b.id, b3Vec3{0.f, 0.f, 0.f});
         b3Body_SetAngularVelocity(b.id, b3Vec3{0.f, 0.f, 0.f});
@@ -390,7 +428,9 @@ void PhysicsSystem::reset()
 void PhysicsSystem::cleanup()
 {
     for (b3HullData *h : ownedHulls)
+    {
         b3DestroyHull(h);
+    }
     ownedHulls.clear();
     bodies.clear();
     if (initialized)
@@ -403,10 +443,11 @@ void PhysicsSystem::cleanup()
 void PhysicsSystem::drawDebug(std::vector<DebugLineVertex> &out)
 {
     if (!initialized)
+    {
         return;
+    }
     b3DebugDraw draw = b3DefaultDebugDraw();
     draw.drawShapes = true;
-    draw.drawBounds = false;
     draw.DrawShapeFcn = &box3dDrawShape;
     draw.context = &out;
     // ensure the broadphase query covers the whole scene
