@@ -24,6 +24,7 @@ namespace sgraph
         std::weak_ptr<Node> parent;
         std::vector<std::shared_ptr<Node>> children;
 
+        // worldTransform caches parentWorld * localTransform; read that one downstream
         glm::mat4 localTransform{1.f};
         glm::mat4 worldTransform{1.f};
 
@@ -32,11 +33,16 @@ namespace sgraph
         void refreshTransform(const glm::mat4 &parentMatrix)
         {
             worldTransform = parentMatrix * localTransform;
-            for (auto c : children)
+            for (auto &c : children)
             {
                 c->refreshTransform(worldTransform);
             }
         }
+
+        // post-multiplies, so authored order applies as written
+        void applyTranslate(const glm::vec3 &t);
+        void applyRotate(float degrees, const glm::vec3 &axis);
+        void applyScale(const glm::vec3 &s);
 
         virtual void Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
         {
@@ -64,30 +70,8 @@ namespace sgraph
     };
 
     // ---- Authored scenegraph node types ----
-    // the authored graph is authoritative; glTF is a geometry source it references
-
-    struct Scene; // full definition in vk_loader.h (glTF geometry container)
-
-    // A pure grouping node (identity transform).
-    struct GroupNode : public Node
-    {
-    };
-
-    struct TransformNode : public Node
-    {
-        void applyTranslate(const glm::vec3 &t);
-        void applyRotate(float degrees, const glm::vec3 &axis);
-        void applyScale(const glm::vec3 &s);
-    };
-
-    // A leaf node referencing an external glTF used purely as geometry.
-    struct GLTFLeafNode : public Node
-    {
-        std::string gltfName;
-        std::shared_ptr<Scene> geometry;
-
-        virtual void Draw(const glm::mat4 &topMatrix, DrawContext &ctx) override;
-    };
+    // the authored graph is authoritative; a glTF file enters it as a Scene node
+    // only nodes carrying extra data subclass Node; grouping and transforming are already Node's job
 
     // no Box3D types here: physics depends on sgraph, never the reverse
     struct RigidBodySpec

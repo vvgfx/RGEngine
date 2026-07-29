@@ -389,26 +389,20 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(GLTFCreatorData creatorDa
         }
     }
 
-    // find the top nodes, with no parents
+    // parentless nodes become our children; the file is a subtree of the graph now
     for (auto &node : nodes)
     {
         if (node->parent.lock() == nullptr)
         {
-            file.topNodes.push_back(node);
-            node->refreshTransform(glm::mat4{1.f});
+            file.children.push_back(node);
+            node->parent = scene;
         }
     }
 
-    return scene;
-}
+    // bake once so a Scene draws standalone. The authored graph re-bakes over this when it binds us.
+    file.refreshTransform(glm::mat4{1.f});
 
-void sgraph::Scene::Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
-{
-    // create renderables from the scenenodes
-    for (auto &n : topNodes)
-    {
-        n->Draw(topMatrix, ctx);
-    }
+    return scene;
 }
 
 void sgraph::Scene::clearAll()
