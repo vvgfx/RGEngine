@@ -44,7 +44,6 @@ struct MeshAsset
 
     // GPU buffers above are write-only; physics builds hulls from this. Mesh-local.
     std::vector<glm::vec3> positions;
-    std::vector<uint32_t> indices;
 };
 
 // contains details required for the loaders.
