@@ -17,6 +17,8 @@ gltf g_cube    ../physics_models/box3d_cube.gltf
 gltf g_sphere  ../physics_models/box3d_sphere.gltf
 gltf g_capsule ../physics_models/box3d_capsule.gltf
 gltf g_hull    ../physics_models/box3d_hull.gltf
+gltf g_body    ../physics_models/wip_robot_without_negate.glb
+gltf g_head    ../physics_models/1-3.glb
 
 # --- scene root ---
 group root
@@ -64,5 +66,28 @@ mesh m_hull g_hull
 add-child m_hull t_hull
 add-child t_hull root
 rigidbody m_hull dynamic hull 1.0
+
+# --- self-assembly pair: humanoid body + head, off to the side of the drop line ---
+# Modelled in mm, hence the 0.1: at 1:1 these would be 30-unit objects on a 40-unit ground.
+
+# Body: 10 convex primitives in one glTF, so one rigid body carrying 10 hull shapes rather than one
+# blob spanning the limbs. Its base sits at y=0 in model space, so the translate y is purely drop height.
+transform t_body
+translate t_body 12 3 0
+scale t_body 0.1 0.1 0.1
+mesh m_body g_body
+add-child m_body t_body
+add-child t_body root
+rigidbody m_body dynamic hull 1.0
+
+# Head. One convex shell (a sphere with a flat cut), so a single hull models its exterior exactly.
+# Only the six sockets are lost, since a hull always fills its own holes. Drops onto the body.
+transform t_head
+translate t_head 12 8 0
+scale t_head 0.1 0.1 0.1
+mesh m_head g_head
+add-child m_head t_head
+add-child t_head root
+rigidbody m_head dynamic hull 1.0
 
 root root

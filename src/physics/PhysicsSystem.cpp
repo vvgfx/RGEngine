@@ -330,22 +330,36 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
         }
         case sgraph::RigidBodySpec::Shape::Hull:
         {
-            std::vector<b3Vec3> pts;
+            // one hull per mesh: box3d hulls are convex, so concave bodies need a decomposed export
+            constexpr int maxHullVerts = 40;
+            int hullCount = 0;
             for (const auto &entry : scene->meshes)
             {
+                std::vector<b3Vec3> pts;
+                pts.reserve(entry.second->positions.size());
                 for (const glm::vec3 &p : entry.second->positions)
                 {
                     pts.push_back(b3Vec3{p.x * s.x, p.y * s.y, p.z * s.z});
                 }
+                if (pts.empty())
+                {
+                    continue;
+                }
+
+                b3HullData *h = b3CreateHull(pts.data(), (int)pts.size(), maxHullVerts);
+                if (h == nullptr) // box3d logs the reason; never hand a null to b3CreateHullShape
+                {
+                    fmt::print("physics: hull build failed for a mesh on '{}'\n", spec.nodeName);
+                    continue;
+                }
+                ownedHulls.push_back(h);
+                b3CreateHullShape(body.id, &sd, h);
+                hullCount++;
             }
-            if (pts.empty())
+            if (hullCount == 0)
             {
-                fmt::print("physics: hull node '{}' has no vertices\n", spec.nodeName);
-                break;
+                fmt::print("physics: hull node '{}' produced no collider\n", spec.nodeName);
             }
-            b3HullData *h = b3CreateHull(pts.data(), (int)pts.size(), (int)pts.size());
-            ownedHulls.push_back(h);
-            b3CreateHullShape(body.id, &sd, h);
             break;
         }
         }
