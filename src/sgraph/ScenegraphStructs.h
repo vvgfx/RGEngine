@@ -24,9 +24,8 @@ namespace sgraph
         std::weak_ptr<Node> parent;
         std::vector<std::shared_ptr<Node>> children;
 
-        // worldTransform caches parentWorld * localTransform; read that one downstream
         glm::mat4 localTransform{1.f};
-        glm::mat4 worldTransform{1.f};
+        glm::mat4 worldTransform{1.f}; // cache of parentWorld * localTransform; read this downstream
 
         virtual ~Node() = default;
 

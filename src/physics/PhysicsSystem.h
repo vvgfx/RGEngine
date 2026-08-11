@@ -5,6 +5,7 @@
 #include <box3d/box3d.h>
 #include <glm/glm.hpp>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace sgraph
@@ -35,10 +36,20 @@ namespace physics
             return bodies.size();
         }
 
+        std::string debugTarget;
+        glm::vec3 debugForceWeights{-2.f, 0.f, 0.f}; // world axes, in multiples of the body's weight
+        bool debugForceActive = false;
+
+        std::vector<std::string> bodyNames() const;
+        float bodyMass(const std::string &name) const;
+
       private:
+        void applyDebugForce();
+
         struct Body
         {
             std::shared_ptr<sgraph::Node> node; // authored node this body drives
+            std::string name;                   // so the UI can target a body
             b3BodyId id{};
             sgraph::RigidBodySpec::Body type = sgraph::RigidBodySpec::Body::Static;
             glm::vec3 bakedScale{1.f}; // scale baked into collider; re-applied to the visual on sync

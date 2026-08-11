@@ -17,6 +17,7 @@ namespace
 {
     constexpr float TWO_PI = 6.2831853f;
     constexpr float PI = 3.14159265f;
+    constexpr float GRAVITY = 10.0f; // magnitude of b3DefaultWorldDef's {0,-10,0}
 
     b3BodyType mapType(sgraph::RigidBodySpec::Body b)
     {
@@ -255,6 +256,7 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
 
         Body body;
         body.node = scene;
+        body.name = spec.nodeName;
         body.type = spec.body;
         body.bakedScale = s;
 
@@ -265,6 +267,12 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
         body.id = b3CreateBody(world, &bd);
         body.initialPos = bd.position;
         body.initialRot = bd.rotation;
+
+        // a sleeping body ignores applied force
+        if (spec.body != sgraph::RigidBodySpec::Body::Static)
+        {
+            b3Body_EnableSleep(body.id, false);
+        }
 
         b3ShapeDef sd = b3DefaultShapeDef();
         if (spec.body != sgraph::RigidBodySpec::Body::Static)
@@ -331,7 +339,7 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
         case sgraph::RigidBodySpec::Shape::Hull:
         {
             // one hull per mesh: box3d hulls are convex, so concave bodies need a decomposed export
-            constexpr int maxHullVerts = 40;
+            constexpr int maxHullVerts = 40; // box3d's 255 half-edge cap puts V under ~44
             int hullCount = 0;
             for (const auto &entry : scene->meshes)
             {
@@ -380,9 +388,51 @@ void PhysicsSystem::step(float frameDt)
     const float fixedDt = 1.0f / 60.0f;
     while (accumulator >= fixedDt)
     {
+        applyDebugForce(); // inside the loop: b3World_Step zeroes the force it just consumed
         b3World_Step(world, fixedDt, 4);
         accumulator -= fixedDt;
     }
+}
+
+void PhysicsSystem::applyDebugForce()
+{
+    if (!debugForceActive || debugTarget.empty())
+    {
+        return;
+    }
+    for (Body &b : bodies)
+    {
+        if (b.name != debugTarget || b.type == sgraph::RigidBodySpec::Body::Static)
+        {
+            continue;
+        }
+        float weight = b3Body_GetMass(b.id) * GRAVITY;
+        b3Body_ApplyForceToCenter(
+            b.id, b3Vec3{debugForceWeights.x * weight, debugForceWeights.y * weight, debugForceWeights.z * weight}, true);
+    }
+}
+
+std::vector<std::string> PhysicsSystem::bodyNames() const
+{
+    std::vector<std::string> names;
+    names.reserve(bodies.size());
+    for (const Body &b : bodies)
+    {
+        names.push_back(b.name);
+    }
+    return names;
+}
+
+float PhysicsSystem::bodyMass(const std::string &name) const
+{
+    for (const Body &b : bodies)
+    {
+        if (b.name == name)
+        {
+            return b3Body_GetMass(b.id);
+        }
+    }
+    return 0.f;
 }
 
 void PhysicsSystem::sync()
