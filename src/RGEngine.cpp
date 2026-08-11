@@ -12,6 +12,7 @@
 #include "vk_loader.h"
 #include "vk_types.h"
 #include <RGEngine.h>
+#include <SDL_keyboard.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -181,6 +182,10 @@ void RGEngine::update_scene()
         p.mode = glm::ivec4(skyMode, 0, 0, 0);
         skyboxFeature->setParams(p);
     }
+
+    // held, not KEYDOWN: one event would only feed a single substep
+    const Uint8 *keys = SDL_GetKeyboardState(nullptr);
+    physics.debugForceActive = keys[SDL_SCANCODE_SPACE] != 0;
 
     // Fixed-timestep physics (decoupled from frame rate), then write body poses onto nodes.
     auto now = std::chrono::steady_clock::now();
@@ -482,6 +487,28 @@ void RGEngine::imGuiAddParams()
             {
                 physics.reset();
             }
+
+            ImGui::SeparatorText("Debug force");
+            std::vector<std::string> names = physics.bodyNames();
+            if (physics.debugTarget.empty() && !names.empty())
+            {
+                auto head = std::find(names.begin(), names.end(), "m_head");
+                physics.debugTarget = (head != names.end()) ? *head : names.front();
+            }
+            if (ImGui::BeginCombo("Target", physics.debugTarget.c_str()))
+            {
+                for (const std::string &name : names)
+                {
+                    if (ImGui::Selectable(name.c_str(), name == physics.debugTarget))
+                    {
+                        physics.debugTarget = name;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::Text("mass: %.2f", physics.bodyMass(physics.debugTarget));
+            ImGui::DragFloat3("Force (world, xN weight)", &physics.debugForceWeights.x, 0.1f, -20.f, 20.f);
+            ImGui::Text("hold SPACE to apply%s", physics.debugForceActive ? "   [ACTIVE]" : "");
         }
     }
     ImGui::End();

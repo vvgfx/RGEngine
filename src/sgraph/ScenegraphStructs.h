@@ -24,10 +24,8 @@ namespace sgraph
         std::weak_ptr<Node> parent;
         std::vector<std::shared_ptr<Node>> children;
 
-        // localTransform is the pose. worldTransform is only ever parentWorld * localTransform, cached so nothing
-        // walks the ancestor chain - read that one everywhere downstream.
         glm::mat4 localTransform{1.f};
-        glm::mat4 worldTransform{1.f};
+        glm::mat4 worldTransform{1.f}; // cache of parentWorld * localTransform; read this downstream
 
         virtual ~Node() = default;
 
