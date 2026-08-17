@@ -31,9 +31,6 @@ namespace sgraph
     class ScenegraphImporter
     {
       public:
-        ScenegraphImporter(GLTFCreatorData &data) : creatorData(data)
-        {
-        }
 
         std::shared_ptr<Scenegraph> parse(std::istream &input)
         {
@@ -100,7 +97,7 @@ namespace sgraph
                 return;
             }
             std::string_view fileView = tok[2];
-            auto gltf = loadGltf(creatorData, fileView);
+            auto gltf = loadGltf(fileView);
             if (!gltf.has_value())
             {
                 std::cout << "gltf: unable to load '" << tok[2] << "'\n";
@@ -302,7 +299,6 @@ namespace sgraph
             return clean.str();
         }
 
-        GLTFCreatorData &creatorData;
         std::unordered_map<std::string, std::shared_ptr<INode>> nodes;
         std::unordered_map<std::string, std::shared_ptr<Scene>> geometries;
         std::unordered_set<std::string> boundGeometries; // geometry names already placed in the graph by 'mesh'

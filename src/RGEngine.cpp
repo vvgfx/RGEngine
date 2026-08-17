@@ -28,16 +28,8 @@ void RGEngine::init()
 
     VulkanEngine::init();
 
-    GLTFCreatorData creatorData = {};
-
-    creatorData._defaultSamplerLinear = _defaultSamplerLinear;
-    creatorData.defaultImage = _whiteImage;
-    creatorData.loadErrorImage = _errorCheckerboardImage;
-    creatorData._device = _device;
-    creatorData.materialSystemReference = &materialSystemInstance;
-
     // authored scenegraph is authoritative; each glTF file enters it as a Scene node
-    sgraph::ScenegraphImporter importer(creatorData);
+    sgraph::ScenegraphImporter importer;
     std::ifstream sceneStream("../scenegraphs/physics-demo.txt");
     if (!sceneStream)
     {

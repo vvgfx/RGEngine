@@ -46,16 +46,6 @@ struct MeshAsset
     std::vector<glm::vec3> positions;
 };
 
-// contains details required for the loaders.
-struct GLTFCreatorData
-{
-    VkDevice _device;
-    AllocatedImage loadErrorImage;
-    AllocatedImage defaultImage;
-    VkSampler _defaultSamplerLinear;
-    MaterialSystem *materialSystemReference;
-};
-
 // lighting data
 struct LightingData
 {
@@ -115,8 +105,6 @@ namespace sgraph
         // the materials in the scene packed together.
         AllocatedBuffer materialDataBuffer;
 
-        GLTFCreatorData creator;
-
         ~Scene() override
         {
             clearAll();
@@ -130,6 +118,6 @@ namespace sgraph
 
 } // namespace sgraph
 
-std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(GLTFCreatorData creatorData, std::string_view filePath);
+std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath);
 
 std::optional<std::shared_ptr<AllocatedImage>> loadImage(std::string fileName);
