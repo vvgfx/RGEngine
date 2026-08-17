@@ -27,6 +27,7 @@ namespace sgraph
     //   add-child <child> <parent>
     //   root <var>
     //   rigidbody <var> <static|dynamic|kinematic> <box|sphere|capsule|hull> [density]
+    //   magnet <var> <px> <py> <pz> <ax> <ay> <az> <n|s>
     class ScenegraphImporter
     {
       public:
@@ -68,6 +69,8 @@ namespace sgraph
                     parseSetRoot(tok);
                 else if (cmd == "rigidbody")
                     parseRigidBody(tok);
+                else if (cmd == "magnet")
+                    parseMagnet(tok);
                 else
                     std::cout << "ScenegraphImporter: invalid command '" << cmd << "'\n";
             }
@@ -81,6 +84,11 @@ namespace sgraph
         const std::vector<RigidBodySpec> &getPhysicsSpecs() const
         {
             return physicsSpecs;
+        }
+
+        const std::vector<MagnetSpec> &getMagnetSpecs() const
+        {
+            return magnetSpecs;
         }
 
       private:
@@ -231,6 +239,27 @@ namespace sgraph
             physicsSpecs.push_back(spec);
         }
 
+        void parseMagnet(const std::vector<std::string> &tok)
+        {
+            if (tok.size() < 9)
+            {
+                std::cout << "magnet: expected <var> <px> <py> <pz> <ax> <ay> <az> <n|s>\n";
+                return;
+            }
+            MagnetSpec spec;
+            spec.nodeName = tok[1];
+            spec.localPos = {std::stof(tok[2]), std::stof(tok[3]), std::stof(tok[4])};
+            spec.axis = {std::stof(tok[5]), std::stof(tok[6]), std::stof(tok[7])};
+            if (tok[8] == "n")
+                spec.polarity = 1.f;
+            else if (tok[8] == "s")
+                spec.polarity = -1.f;
+            else
+                std::cout << "magnet: polarity must be 'n' or 's', got '" << tok[8] << "'\n";
+
+            magnetSpecs.push_back(spec);
+        }
+
         // ---- helpers ---------------------------------------------------------
         std::shared_ptr<Node> asNode(const std::string &name)
         {
@@ -278,6 +307,7 @@ namespace sgraph
         std::unordered_map<std::string, std::shared_ptr<Scene>> geometries;
         std::unordered_set<std::string> boundGeometries; // geometry names already placed in the graph by 'mesh'
         std::vector<RigidBodySpec> physicsSpecs;
+        std::vector<MagnetSpec> magnetSpecs;
         std::shared_ptr<INode> root;
     };
 } // namespace sgraph

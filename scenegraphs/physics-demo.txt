@@ -75,6 +75,12 @@ mesh m_body g_body
 add-child m_body t_body
 add-child t_body root
 rigidbody m_body dynamic hull 1.0
+# north base on the flat collar top (y=25.81), 4 magnets on a 16mm square. Odd polarity in one
+# corner is what makes a mismatched orientation attract on only some magnets.
+magnet m_body -4.25 25.81  4.25 0 1 0 s
+magnet m_body  4.25 25.81  4.25 0 1 0 n
+magnet m_body -4.25 25.81 -4.25 0 1 0 n
+magnet m_body  4.25 25.81 -4.25 0 1 0 n
 
 # beside the body, not above it, so a horizontal force isn't fighting gravity
 transform t_head
@@ -84,5 +90,11 @@ mesh m_head g_head
 add-child m_head t_head
 add-child t_head root
 rigidbody m_head dynamic hull 1.0
+# provisional: this head has no flat base modelled yet, so these sit on the sphere's underside.
+# south base, so the odd magnet mirrors to the opposite corner.
+magnet m_head  2.91 1.50  5.56 0 -1 0 n
+magnet m_head -5.59 1.50  5.56 0 -1 0 s
+magnet m_head  2.91 1.50 -2.94 0 -1 0 s
+magnet m_head -5.59 1.50 -2.94 0 -1 0 s
 
 root root

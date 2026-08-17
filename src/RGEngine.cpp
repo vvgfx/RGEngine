@@ -52,7 +52,7 @@ void RGEngine::init()
     }
 
     physics.init();
-    physics.buildFromScene(scenegraph, importer.getPhysicsSpecs());
+    physics.buildFromScene(scenegraph, importer.getPhysicsSpecs(), importer.getMagnetSpecs());
 
     mainCamera.position = glm::vec3{0.f, 8.f, 32.f};
     mainCamera.pitch = -0.25f;
@@ -210,11 +210,15 @@ void RGEngine::update_scene()
 
     if (debugFeature)
     {
-        debugFeature->enabled = showDebugDraw;
+        debugFeature->enabled = showDebugDraw || showMagnets;
         std::vector<DebugLineVertex> lines;
         if (showDebugDraw)
         {
             physics.drawDebug(lines);
+        }
+        if (showMagnets)
+        {
+            physics.drawMagnets(lines);
         }
         debugFeature->setLines(std::move(lines));
     }
@@ -500,6 +504,13 @@ void RGEngine::imGuiAddParams()
             ImGui::Text("mass: %.2f", physics.bodyMass(physics.debugTarget));
             ImGui::DragFloat3("Force (world, xN weight)", &physics.debugForceWeights.x, 0.1f, -20.f, 20.f);
             ImGui::Text("hold SPACE to apply%s", physics.debugForceActive ? "   [ACTIVE]" : "");
+
+            ImGui::SeparatorText("Magnets");
+            ImGui::Checkbox("Show magnets", &showMagnets);
+            ImGui::Checkbox("Enable magnets", &physics.magnetsEnabled);
+            ImGui::DragFloat("Pole strength", &physics.magnetStrength, 1.0e3f, 0.f, 1.0e7f, "%.3g");
+            ImGui::DragFloat("Cutoff", &physics.magnetCutoff, 1.f, 1.f, 500.f);
+            ImGui::Text("pairs last step: %d", physics.magnetPairsLastStep);
         }
     }
     ImGui::End();

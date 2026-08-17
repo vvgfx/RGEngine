@@ -22,7 +22,8 @@ namespace physics
         void init();
 
         // world transforms must be current; scale is baked into the collider
-        void buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &graph, const std::vector<sgraph::RigidBodySpec> &specs);
+        void buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &graph, const std::vector<sgraph::RigidBodySpec> &specs,
+                            const std::vector<sgraph::MagnetSpec> &magnetSpecs);
 
         void step(float frameDt); // fixed-timestep accumulator, 1/60 with 4 substeps
         void sync();              // box3d -> scenegraph. Writes localTransform, so later rebakes agree with it.
@@ -30,6 +31,14 @@ namespace physics
         void cleanup();
 
         void drawDebug(std::vector<DebugLineVertex> &out);
+
+        // Magnet discs and pole axes, red north / blue south.
+        void drawMagnets(std::vector<DebugLineVertex> &out) const;
+
+        bool magnetsEnabled = false;
+        float magnetStrength = 5.0e4f; // pole strength, uncalibrated: the paper gives no force data
+        float magnetCutoff = 60.f;
+        int magnetPairsLastStep = 0;
 
         std::size_t bodyCount() const
         {
@@ -45,6 +54,24 @@ namespace physics
 
       private:
         void applyDebugForce();
+        void applyMagnetForces();
+
+        struct Magnet
+        {
+            glm::vec3 localPos{0.f};
+            glm::vec3 axis{0.f, 1.f, 0.f};
+            float polarity = 1.f;
+            float thickness = 1.5f; // poles sit on the two faces, this far apart
+        };
+
+        // Magnets expanded to their poles in world space, rebuilt each substep.
+        struct WorldPole
+        {
+            glm::vec3 pos;
+            float charge;
+            std::size_t body;
+        };
+        std::vector<WorldPole> poles;
 
         struct Body
         {
@@ -55,6 +82,7 @@ namespace physics
             glm::vec3 bakedScale{1.f}; // scale baked into collider; re-applied to the visual on sync
             b3Pos initialPos{};
             b3Quat initialRot{};
+            std::vector<Magnet> magnets;
         };
 
         b3WorldId world{};

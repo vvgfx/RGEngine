@@ -95,4 +95,13 @@ namespace sgraph
         float density = 1.0f;
     };
 
+    // one per magnet; a base is just the group sharing a normal
+    struct MagnetSpec
+    {
+        std::string nodeName;
+        glm::vec3 localPos{0.f};
+        glm::vec3 axis{0.f, 1.f, 0.f};
+        float polarity = 1.f; // +1 north, -1 south
+    };
+
 } // namespace sgraph

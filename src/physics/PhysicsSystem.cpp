@@ -227,7 +227,8 @@ void PhysicsSystem::init()
     initialized = true;
 }
 
-void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &graph, const std::vector<sgraph::RigidBodySpec> &specs)
+void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &graph, const std::vector<sgraph::RigidBodySpec> &specs,
+                                   const std::vector<sgraph::MagnetSpec> &magnetSpecs)
 {
     if (!initialized)
     {
@@ -375,7 +376,25 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
         bodies.push_back(std::move(body));
     }
 
-    fmt::print("physics: built {} bodies\n", bodies.size());
+    std::size_t magnetCount = 0;
+    for (const sgraph::MagnetSpec &spec : magnetSpecs)
+    {
+        auto it = std::find_if(bodies.begin(), bodies.end(), [&](const Body &b) { return b.name == spec.nodeName; });
+        if (it == bodies.end())
+        {
+            fmt::print("physics: magnet references unknown body '{}'\n", spec.nodeName);
+            continue;
+        }
+        Magnet m;
+        m.localPos = spec.localPos * it->bakedScale; // colliders are scaled the same way
+        m.axis = glm::normalize(spec.axis);
+        m.polarity = spec.polarity;
+        m.thickness *= it->bakedScale.x;
+        it->magnets.push_back(m);
+        magnetCount++;
+    }
+
+    fmt::print("physics: built {} bodies, {} magnets\n", bodies.size(), magnetCount);
 }
 
 void PhysicsSystem::step(float frameDt)
@@ -389,6 +408,7 @@ void PhysicsSystem::step(float frameDt)
     while (accumulator >= fixedDt)
     {
         applyDebugForce(); // inside the loop: b3World_Step zeroes the force it just consumed
+        applyMagnetForces();
         b3World_Step(world, fixedDt, 4);
         accumulator -= fixedDt;
     }
@@ -409,6 +429,112 @@ void PhysicsSystem::applyDebugForce()
         float weight = b3Body_GetMass(b.id) * GRAVITY;
         b3Body_ApplyForceToCenter(
             b.id, b3Vec3{debugForceWeights.x * weight, debugForceWeights.y * weight, debugForceWeights.z * weight}, true);
+    }
+}
+
+namespace
+{
+    glm::mat4 bodyTransform(b3BodyId id)
+    {
+        b3Pos p = b3Body_GetPosition(id);
+        b3Quat q = b3Body_GetRotation(id);
+        glm::quat rot(q.s, q.v.x, q.v.y, q.v.z);
+        return glm::translate(glm::mat4(1.f), glm::vec3((float)p.x, (float)p.y, (float)p.z)) * glm::toMat4(rot);
+    }
+} // namespace
+
+void PhysicsSystem::applyMagnetForces()
+{
+    magnetPairsLastStep = 0;
+    if (!magnetsEnabled)
+    {
+        return;
+    }
+
+    // Expand every magnet into its two poles, so the interaction is one flat loop over pole pairs.
+    poles.clear();
+    for (std::size_t i = 0; i < bodies.size(); i++)
+    {
+        if (bodies[i].magnets.empty())
+        {
+            continue;
+        }
+        glm::mat4 x = bodyTransform(bodies[i].id);
+        for (const Magnet &m : bodies[i].magnets)
+        {
+            glm::vec3 pos = glm::vec3(x * glm::vec4(m.localPos, 1.f));
+            glm::vec3 axis = glm::vec3(x * glm::vec4(m.axis, 0.f));
+            glm::vec3 half = axis * (m.thickness * 0.5f) * m.polarity;
+            poles.push_back({pos + half, 1.f, i});
+            poles.push_back({pos - half, -1.f, i});
+        }
+    }
+
+    for (std::size_t i = 0; i < poles.size(); i++)
+    {
+        for (std::size_t k = i + 1; k < poles.size(); k++)
+        {
+            if (poles[i].body == poles[k].body)
+            {
+                continue;
+            }
+            glm::vec3 delta = poles[k].pos - poles[i].pos;
+            float dist = glm::length(delta);
+            if (dist > magnetCutoff)
+            {
+                continue;
+            }
+            dist = std::max(dist, 1e-4f); // divide-by-zero guard, not a force cap
+
+            // Coulomb between poles: like charges push, unlike pull
+            glm::vec3 force = magnetStrength * poles[i].charge * poles[k].charge * delta / (dist * dist * dist);
+
+            // at the pole, not the centre of mass, so the aligning torque falls out of the offset
+            b3Body_ApplyForce(bodies[poles[k].body].id, b3Vec3{force.x, force.y, force.z},
+                              b3Pos{poles[k].pos.x, poles[k].pos.y, poles[k].pos.z}, true);
+            b3Body_ApplyForce(bodies[poles[i].body].id, b3Vec3{-force.x, -force.y, -force.z},
+                              b3Pos{poles[i].pos.x, poles[i].pos.y, poles[i].pos.z}, true);
+            magnetPairsLastStep++;
+        }
+    }
+}
+
+void PhysicsSystem::drawMagnets(std::vector<DebugLineVertex> &out) const
+{
+    const glm::vec4 north{0.9f, 0.15f, 0.15f, 1.f};
+    const glm::vec4 south{0.15f, 0.35f, 0.95f, 1.f};
+
+    for (const Body &b : bodies)
+    {
+        if (b.magnets.empty())
+        {
+            continue;
+        }
+        glm::mat4 x = bodyTransform(b.id);
+        const float radius = 1.5f * b.bakedScale.x; // 3mm disc, in the body's own scale
+        for (const Magnet &m : b.magnets)
+        {
+            glm::vec3 c = glm::vec3(x * glm::vec4(m.localPos, 1.f));
+            glm::vec3 axis = glm::normalize(glm::vec3(x * glm::vec4(m.axis, 0.f)));
+            glm::vec3 ref = std::abs(axis.x) < 0.9f ? glm::vec3(1, 0, 0) : glm::vec3(0, 0, 1);
+            glm::vec3 u = glm::normalize(glm::cross(axis, ref));
+            glm::vec3 v = glm::cross(axis, u);
+            glm::vec3 half = axis * (m.thickness * 0.5f) * m.polarity;
+
+            // a face disc at each pole, joined by the moment arm
+            for (int end = 0; end < 2; end++)
+            {
+                glm::vec3 face = end == 0 ? c + half : c - half;
+                std::vector<glm::vec3> segments;
+                arcLocal(segments, face, u, v, radius, 0.f, TWO_PI, 12);
+                pushSeg(segments, c, face);
+                const glm::vec4 &col = end == 0 ? north : south;
+                for (const glm::vec3 &p : segments)
+                {
+                    out.push_back({glm::vec4(p, 1.f), col});
+                }
+            }
+        }
     }
 }
 

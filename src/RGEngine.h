@@ -54,7 +54,8 @@ class RGEngine : public VulkanEngine
 
     std::chrono::steady_clock::time_point lastPhysicsTime;
     bool physicsPaused = false;
-    bool showDebugDraw = true;
+    bool showDebugDraw = false;
+    bool showMagnets = true;
 
     // --- sky + directional sun ---
     std::shared_ptr<rgraph::SkyboxFeature> skyboxFeature;
