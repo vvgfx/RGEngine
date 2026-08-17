@@ -1,5 +1,6 @@
 ﻿#include "GPUResourceAllocator.h"
 #include "MaterialSystem.h"
+#include "vk_engine.h"
 #include "fastgltf/types.hpp"
 #include "fmt/base.h"
 #include "sgraph/ScenegraphStructs.h"
@@ -20,12 +21,14 @@ VkFilter extract_filter(fastgltf::Filter filter);
 VkSamplerMipmapMode extract_mipmap_mode(fastgltf::Filter filter);
 std::optional<AllocatedImage> load_image(fastgltf::Asset &asset, fastgltf::Image &image);
 
-std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(GLTFCreatorData creatorData, std::string_view filePath)
+std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath)
 {
     fmt::print("Loading GLTF: {}", filePath);
 
+    VulkanEngine &engine = VulkanEngine::Instance();
+    VkDevice device = engine.GetVkDevice();
+
     std::shared_ptr<sgraph::Scene> scene = std::make_shared<sgraph::Scene>();
-    scene->creator = std::move(creatorData);
     sgraph::Scene &file = *scene.get();
 
     fastgltf::Parser parser(fastgltf::Extensions::KHR_lights_punctual);
@@ -81,7 +84,7 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(GLTFCreatorData creatorDa
     std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3}, {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3}, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}};
 
-    file.descriptorPool.init(creatorData._device, gltf.materials.size(), sizes);
+    file.descriptorPool.init(device, gltf.materials.size(), sizes);
 
     // load samplers
     for (fastgltf::Sampler &sampler : gltf.samplers)
@@ -97,7 +100,7 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(GLTFCreatorData creatorDa
         sampl.mipmapMode = extract_mipmap_mode(sampler.minFilter.value_or(fastgltf::Filter::Nearest));
 
         VkSampler newSampler;
-        vkCreateSampler(creatorData._device, &sampl, nullptr, &newSampler);
+        vkCreateSampler(device, &sampl, nullptr, &newSampler);
 
         file.samplers.push_back(newSampler);
     }
@@ -143,7 +146,7 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(GLTFCreatorData creatorDa
         {
             // we failed to load, so lets give the slot a default white texture to not
             // completely break loading
-            images.push_back(creatorData.loadErrorImage);
+            images.push_back(engine.GetErrorImage());
             std::cout << "gltf failed to load texture " << image.name << std::endl;
         }
     }
@@ -178,10 +181,10 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(GLTFCreatorData creatorDa
 
         MaterialSystem::MaterialResources materialResources;
         // default the material textures
-        materialResources.colorImage = creatorData.defaultImage;
-        materialResources.colorSampler = creatorData._defaultSamplerLinear;
-        materialResources.metalRoughImage = creatorData.defaultImage;
-        materialResources.metalRoughSampler = creatorData._defaultSamplerLinear;
+        materialResources.colorImage = engine.GetDefaultImage();
+        materialResources.colorSampler = engine.GetDefaultSampler();
+        materialResources.metalRoughImage = engine.GetDefaultImage();
+        materialResources.metalRoughSampler = engine.GetDefaultSampler();
 
         // set the uniform buffer for the material data
         materialResources.dataBuffer = file.materialDataBuffer.buffer;
@@ -204,7 +207,7 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(GLTFCreatorData creatorDa
             materialResources.metalRoughSampler = file.samplers[sampler];
         }
         // build material
-        newMat->data = creatorData.materialSystemReference->write_material(creatorData._device, passType, materialResources, file.descriptorPool);
+        newMat->data = engine.GetMaterialSystem().write_material(device, passType, materialResources, file.descriptorPool);
 
         data_index++;
     }
@@ -405,7 +408,8 @@ void sgraph::Scene::Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 
 void sgraph::Scene::clearAll()
 {
-    VkDevice dv = creator._device;
+    VulkanEngine &engine = VulkanEngine::Instance();
+    VkDevice dv = engine.GetVkDevice();
 
     GPUResourceAllocator gpuResourceAllocator = GPUResourceAllocator::Instance();
 
@@ -422,7 +426,7 @@ void sgraph::Scene::clearAll()
     for (auto &[k, v] : images)
     {
 
-        if (v.image == creator.loadErrorImage.image)
+        if (v.image == engine.GetErrorImage().image)
         {
             // dont destroy the default images
             continue;

@@ -20,10 +20,6 @@ namespace sgraph
     {
 
       public:
-        ScenegraphImporter(GLTFCreatorData &data) : creatorData(data)
-        {
-        }
-
         shared_ptr<IScenegraph> parse(istream &input)
         {
             string command;
@@ -68,7 +64,7 @@ namespace sgraph
             string name, filePath;
             input >> name >> filePath;
             string_view fileView = filePath;
-            auto gltfNode = loadGltf(creatorData, fileView);
+            auto gltfNode = loadGltf(fileView);
             if (!gltfNode.has_value())
             {
                 cout << "Unable to load gltf node at : " << filePath << endl;
@@ -140,7 +136,6 @@ namespace sgraph
         }
 
       private:
-        GLTFCreatorData &creatorData;
         unordered_map<string, std::shared_ptr<INode>> nodes;
         std::shared_ptr<INode> root;
     };

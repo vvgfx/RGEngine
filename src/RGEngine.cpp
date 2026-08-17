@@ -19,18 +19,10 @@ void RGEngine::init()
 
     VulkanEngine::init();
 
-    std::string structurePath = {"../assets/outpostWithLights4.glb"};
-
-    GLTFCreatorData creatorData = {};
-
-    creatorData._defaultSamplerLinear = _defaultSamplerLinear;
-    creatorData.defaultImage = _whiteImage;
-    creatorData.loadErrorImage = _errorCheckerboardImage;
-    creatorData._device = _device;
-    creatorData.materialSystemReference = &materialSystemInstance;
+    std::string structurePath = {"../assets/outpostWithLights3.glb"};
 
     // this is called after the pipelines are initialzed.
-    auto structureFile = loadGltf(creatorData, structurePath);
+    auto structureFile = loadGltf(structurePath);
 
     assert(structureFile.has_value());
 

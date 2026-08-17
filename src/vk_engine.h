@@ -257,6 +257,21 @@ class VulkanEngine
         return _device;
     }
 
+    AllocatedImage GetDefaultImage()
+    {
+        return _whiteImage;
+    }
+
+    AllocatedImage GetErrorImage()
+    {
+        return _errorCheckerboardImage;
+    }
+
+    VkSampler GetDefaultSampler()
+    {
+        return _defaultSamplerLinear;
+    }
+
     // scenegraph stuff
 
     DrawContext mainDrawContext;
