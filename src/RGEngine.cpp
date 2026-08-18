@@ -30,10 +30,10 @@ void RGEngine::init()
 
     // authored scenegraph is authoritative; each glTF file enters it as a Scene node
     sgraph::ScenegraphImporter importer;
-    std::ifstream sceneStream("../scenegraphs/physics-demo.txt");
+    std::ifstream sceneStream("../scenegraphs/magnet-test-1.txt");
     if (!sceneStream)
     {
-        fmt::print("RGEngine: failed to open ../scenegraphs/physics-demo.txt\n");
+        fmt::print("RGEngine: failed to open ../scenegraphs/magnet-test-1.txt\n");
     }
     scenegraph = importer.parse(sceneStream);
 

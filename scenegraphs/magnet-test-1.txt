@@ -1,0 +1,53 @@
+# Magnet strength sweep: two cubes facing each other, nothing else acting horizontally.
+# Raise "Pole strength" in the Physics panel until they break static friction and close.
+#
+# cube.glb is 18.16mm with four magnet recessions on its +Y face, r=1.62, at
+# (-4.62, -4.08) (2.97, -4.08) (-4.62, 4.20) (2.97, 4.21) in x/z, pocket at y~18.9.
+# Each cube is rolled 90 degrees about Z so that face turns to point along X at its partner.
+# Heights differ because the model is not centred on its own origin: both start resting, so
+# nothing but magnetism can move them.
+
+gltf g_ground ../physics_models/box3d_ground.gltf
+gltf g_cube_a ../physics_models/cube.glb
+gltf g_cube_b ../physics_models/cube.glb
+
+group root
+
+# --- ground, top surface at y = 0 ---
+transform t_ground
+translate t_ground 0 -1 0
+scale t_ground 20 1 20
+mesh m_ground g_ground
+add-child m_ground t_ground
+add-child t_ground root
+rigidbody m_ground static box
+
+# --- cube A: -90 about Z puts its magnet face on +X, toward B ---
+transform t_a
+translate t_a -2.4 0.828 0
+rotate t_a -90 0 0 1
+scale t_a 0.1 0.1 0.1
+mesh m_a g_cube_a
+add-child m_a t_a
+add-child t_a root
+rigidbody m_a dynamic box 1.0
+magnet m_a -4.62 18.9 -4.08 0 1 0 n
+magnet m_a  2.97 18.9 -4.08 0 1 0 n
+magnet m_a -4.62 18.9  4.20 0 1 0 n
+magnet m_a  2.97 18.9  4.21 0 1 0 n
+
+# --- cube B: +90 about Z puts its magnet face on -X. All south, so A's north pulls it in ---
+transform t_b
+translate t_b 2.4 1.028 0
+rotate t_b 90 0 0 1
+scale t_b 0.1 0.1 0.1
+mesh m_b g_cube_b
+add-child m_b t_b
+add-child t_b root
+rigidbody m_b dynamic box 1.0
+magnet m_b -4.62 18.9 -4.08 0 1 0 s
+magnet m_b  2.97 18.9 -4.08 0 1 0 s
+magnet m_b -4.62 18.9  4.20 0 1 0 s
+magnet m_b  2.97 18.9  4.21 0 1 0 s
+
+root root
