@@ -36,7 +36,7 @@ namespace physics
         void drawMagnets(std::vector<DebugLineVertex> &out) const;
 
         bool magnetsEnabled = false;
-        float magnetStrength = 5.0e4f; // pole strength, uncalibrated: the paper gives no force data
+        float magnetStrength = 0.5f; // pole strength, uncalibrated: the paper gives no force data
         float magnetCutoff = 60.f;
         int magnetPairsLastStep = 0;
 
@@ -69,6 +69,7 @@ namespace physics
         {
             glm::vec3 pos;
             float charge;
+            float radius;
             std::size_t body;
         };
         std::vector<WorldPole> poles;

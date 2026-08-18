@@ -31,10 +31,10 @@ mesh m_a g_cube_a
 add-child m_a t_a
 add-child t_a root
 rigidbody m_a dynamic box 1.0
-magnet m_a -4.62 18.9 -4.08 0 1 0 n
-magnet m_a  2.97 18.9 -4.08 0 1 0 n
-magnet m_a -4.62 18.9  4.20 0 1 0 n
-magnet m_a  2.97 18.9  4.21 0 1 0 n
+magnet m_a -4.62 18.33 -4.08 0 1 0 n
+magnet m_a  2.97 18.33 -4.08 0 1 0 n
+magnet m_a -4.62 18.33  4.20 0 1 0 n
+magnet m_a  2.97 18.33  4.21 0 1 0 n
 
 # --- cube B: +90 about Z puts its magnet face on -X. All south, so A's north pulls it in ---
 transform t_b
@@ -45,9 +45,9 @@ mesh m_b g_cube_b
 add-child m_b t_b
 add-child t_b root
 rigidbody m_b dynamic box 1.0
-magnet m_b -4.62 18.9 -4.08 0 1 0 s
-magnet m_b  2.97 18.9 -4.08 0 1 0 s
-magnet m_b -4.62 18.9  4.20 0 1 0 s
-magnet m_b  2.97 18.9  4.21 0 1 0 s
+magnet m_b -4.62 18.33 -4.08 0 1 0 s
+magnet m_b  2.97 18.33 -4.08 0 1 0 s
+magnet m_b -4.62 18.33  4.20 0 1 0 s
+magnet m_b  2.97 18.33  4.21 0 1 0 s
 
 root root

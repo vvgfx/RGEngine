@@ -17,7 +17,8 @@ namespace
 {
     constexpr float TWO_PI = 6.2831853f;
     constexpr float PI = 3.14159265f;
-    constexpr float GRAVITY = 10.0f; // magnitude of b3DefaultWorldDef's {0,-10,0}
+    constexpr float GRAVITY = 10.0f;       // magnitude of b3DefaultWorldDef's {0,-10,0}
+    constexpr float MAGNET_RADIUS = 1.5f;  // 3mm disc
 
     b3BodyType mapType(sgraph::RigidBodySpec::Body b)
     {
@@ -460,13 +461,14 @@ void PhysicsSystem::applyMagnetForces()
             continue;
         }
         glm::mat4 x = bodyTransform(bodies[i].id);
+        const float radius = MAGNET_RADIUS * bodies[i].bakedScale.x;
         for (const Magnet &m : bodies[i].magnets)
         {
             glm::vec3 pos = glm::vec3(x * glm::vec4(m.localPos, 1.f));
             glm::vec3 axis = glm::vec3(x * glm::vec4(m.axis, 0.f));
             glm::vec3 half = axis * (m.thickness * 0.5f) * m.polarity;
-            poles.push_back({pos + half, 1.f, i});
-            poles.push_back({pos - half, -1.f, i});
+            poles.push_back({pos + half, 1.f, radius, i});
+            poles.push_back({pos - half, -1.f, radius, i});
         }
     }
 
@@ -484,7 +486,8 @@ void PhysicsSystem::applyMagnetForces()
             {
                 continue;
             }
-            dist = std::max(dist, 1e-4f); // divide-by-zero guard, not a force cap
+            // a point pole is meaningless inside the real disc, and 1/d^2 diverges there
+            dist = std::max(dist, std::max(poles[i].radius, poles[k].radius));
 
             // Coulomb between poles: like charges push, unlike pull
             glm::vec3 force = magnetStrength * poles[i].charge * poles[k].charge * delta / (dist * dist * dist);
@@ -511,7 +514,7 @@ void PhysicsSystem::drawMagnets(std::vector<DebugLineVertex> &out) const
             continue;
         }
         glm::mat4 x = bodyTransform(b.id);
-        const float radius = 1.5f * b.bakedScale.x; // 3mm disc, in the body's own scale
+        const float radius = MAGNET_RADIUS * b.bakedScale.x;
         for (const Magnet &m : b.magnets)
         {
             glm::vec3 c = glm::vec3(x * glm::vec4(m.localPos, 1.f));
