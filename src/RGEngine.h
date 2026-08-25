@@ -56,6 +56,8 @@ class RGEngine : public VulkanEngine
     bool physicsPaused = false;
     bool showDebugDraw = false;
     bool showMagnets = true;
+    bool showMagnetForces = true;
+    float physicsTimeScale = 1.f;
 
     // --- sky + directional sun ---
     std::shared_ptr<rgraph::SkyboxFeature> skyboxFeature;

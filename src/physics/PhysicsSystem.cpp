@@ -19,6 +19,7 @@ namespace
     constexpr float PI = 3.14159265f;
     constexpr float GRAVITY = 10.0f;       // magnitude of b3DefaultWorldDef's {0,-10,0}
     constexpr float MAGNET_RADIUS = 1.5f;  // 3mm disc
+    constexpr float FIXED_DT = 1.0f / 60.0f;
 
     b3BodyType mapType(sgraph::RigidBodySpec::Body b)
     {
@@ -405,14 +406,26 @@ void PhysicsSystem::step(float frameDt)
         return;
     }
     accumulator = std::min(accumulator + frameDt, 0.25f); // clamp: anti spiral-of-death
-    const float fixedDt = 1.0f / 60.0f;
-    while (accumulator >= fixedDt)
+    while (accumulator >= FIXED_DT)
     {
-        applyDebugForce(); // inside the loop: b3World_Step zeroes the force it just consumed
-        applyMagnetForces();
-        b3World_Step(world, fixedDt, 4);
-        accumulator -= fixedDt;
+        substep();
+        accumulator -= FIXED_DT;
     }
+}
+
+void PhysicsSystem::stepOnce()
+{
+    if (initialized)
+    {
+        substep();
+    }
+}
+
+void PhysicsSystem::substep()
+{
+    applyDebugForce(); // before the step: b3World_Step zeroes the force it just consumed
+    applyMagnetForces();
+    b3World_Step(world, FIXED_DT, 4);
 }
 
 void PhysicsSystem::applyDebugForce()
@@ -467,8 +480,8 @@ void PhysicsSystem::applyMagnetForces()
             glm::vec3 pos = glm::vec3(x * glm::vec4(m.localPos, 1.f));
             glm::vec3 axis = glm::vec3(x * glm::vec4(m.axis, 0.f));
             glm::vec3 half = axis * (m.thickness * 0.5f) * m.polarity;
-            poles.push_back({pos + half, 1.f, radius, i});
-            poles.push_back({pos - half, -1.f, radius, i});
+            poles.push_back({pos + half, 1.f, radius, i, glm::vec3(0.f)});
+            poles.push_back({pos - half, -1.f, radius, i, glm::vec3(0.f)});
         }
     }
 
@@ -482,10 +495,6 @@ void PhysicsSystem::applyMagnetForces()
             }
             glm::vec3 delta = poles[k].pos - poles[i].pos;
             float dist = glm::length(delta);
-            if (dist > magnetCutoff)
-            {
-                continue;
-            }
             // a point pole is meaningless inside the real disc, and 1/d^2 diverges there
             dist = std::max(dist, std::max(poles[i].radius, poles[k].radius));
 
@@ -497,6 +506,8 @@ void PhysicsSystem::applyMagnetForces()
                               b3Pos{poles[k].pos.x, poles[k].pos.y, poles[k].pos.z}, true);
             b3Body_ApplyForce(bodies[poles[i].body].id, b3Vec3{-force.x, -force.y, -force.z},
                               b3Pos{poles[i].pos.x, poles[i].pos.y, poles[i].pos.z}, true);
+            poles[k].force += force;
+            poles[i].force -= force;
             magnetPairsLastStep++;
         }
     }
@@ -539,6 +550,43 @@ void PhysicsSystem::drawMagnets(std::vector<DebugLineVertex> &out) const
             }
         }
     }
+}
+
+void PhysicsSystem::drawMagnetForces(std::vector<DebugLineVertex> &out) const
+{
+    const glm::vec4 col{0.85f, 0.95f, 0.2f, 1.f};
+    for (const WorldPole &p : poles)
+    {
+        float mag = glm::length(p.force);
+        if (mag < 1e-6f)
+        {
+            continue;
+        }
+        glm::vec3 dir = p.force / mag;
+        float len = std::min(mag * magnetArrowScale, magnetArrowMax);
+        glm::vec3 tip = p.pos + dir * len;
+
+        glm::vec3 ref = std::abs(dir.x) < 0.9f ? glm::vec3(1, 0, 0) : glm::vec3(0, 0, 1);
+        glm::vec3 side = glm::normalize(glm::cross(dir, ref)) * (len * 0.12f);
+        std::vector<glm::vec3> seg;
+        pushSeg(seg, p.pos, tip);
+        pushSeg(seg, tip, tip - dir * (len * 0.25f) + side);
+        pushSeg(seg, tip, tip - dir * (len * 0.25f) - side);
+        for (const glm::vec3 &v : seg)
+        {
+            out.push_back({glm::vec4(v, 1.f), col});
+        }
+    }
+}
+
+float PhysicsSystem::largestPoleForce() const
+{
+    float m = 0.f;
+    for (const WorldPole &p : poles)
+    {
+        m = std::max(m, glm::length(p.force));
+    }
+    return m;
 }
 
 std::vector<std::string> PhysicsSystem::bodyNames() const

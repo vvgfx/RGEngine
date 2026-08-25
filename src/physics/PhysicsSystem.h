@@ -26,6 +26,7 @@ namespace physics
                             const std::vector<sgraph::MagnetSpec> &magnetSpecs);
 
         void step(float frameDt); // fixed-timestep accumulator, 1/60 with 4 substeps
+        void stepOnce();          // exactly one substep, for stepping through while paused
         void sync();              // box3d -> scenegraph. Writes localTransform, so later rebakes agree with it.
         void reset();             // re-drop: restore initial poses, zero velocities
         void cleanup();
@@ -35,9 +36,14 @@ namespace physics
         // Magnet discs and pole axes, red north / blue south.
         void drawMagnets(std::vector<DebugLineVertex> &out) const;
 
+        // one arrow per pole, along last substep's force
+        void drawMagnetForces(std::vector<DebugLineVertex> &out) const;
+        float largestPoleForce() const;
+
         bool magnetsEnabled = false;
         float magnetStrength = 0.5f; // pole strength, uncalibrated: the paper gives no force data
-        float magnetCutoff = 60.f;
+        float magnetArrowScale = 1.0e-3f;
+        float magnetArrowMax = 2.0f; // I think we need this to prevent infinity lines.
         int magnetPairsLastStep = 0;
 
         std::size_t bodyCount() const
@@ -53,6 +59,7 @@ namespace physics
         float bodyMass(const std::string &name) const;
 
       private:
+        void substep();
         void applyDebugForce();
         void applyMagnetForces();
 
@@ -71,6 +78,7 @@ namespace physics
             float charge;
             float radius;
             std::size_t body;
+            glm::vec3 force{0.f};
         };
         std::vector<WorldPole> poles;
 

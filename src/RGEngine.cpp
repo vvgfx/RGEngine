@@ -183,7 +183,7 @@ void RGEngine::update_scene()
     lastPhysicsTime = now;
     if (!physicsPaused)
     {
-        physics.step(frameDt);
+        physics.step(frameDt * physicsTimeScale);
     }
     physics.sync();
 
@@ -202,7 +202,7 @@ void RGEngine::update_scene()
 
     if (debugFeature)
     {
-        debugFeature->enabled = showDebugDraw || showMagnets;
+        debugFeature->enabled = showDebugDraw || showMagnets || showMagnetForces;
         std::vector<DebugLineVertex> lines;
         if (showDebugDraw)
         {
@@ -211,6 +211,10 @@ void RGEngine::update_scene()
         if (showMagnets)
         {
             physics.drawMagnets(lines);
+        }
+        if (showMagnetForces)
+        {
+            physics.drawMagnetForces(lines);
         }
         debugFeature->setLines(std::move(lines));
     }
@@ -470,6 +474,12 @@ void RGEngine::imGuiAddParams()
             ImGui::Text("bodies: %zu", physics.bodyCount());
             ImGui::Checkbox("Show collider wireframes", &showDebugDraw);
             ImGui::Checkbox("Pause", &physicsPaused);
+            ImGui::SameLine();
+            if (ImGui::Button("Step once"))
+            {
+                physics.stepOnce();
+            }
+            ImGui::DragFloat("Time scale", &physicsTimeScale, 0.005f, 0.01f, 1.f, "%.3f");
             if (ImGui::Button("Re-drop"))
             {
                 physics.reset();
@@ -501,8 +511,10 @@ void RGEngine::imGuiAddParams()
             ImGui::Checkbox("Show magnets", &showMagnets);
             ImGui::Checkbox("Enable magnets", &physics.magnetsEnabled);
             ImGui::DragFloat("Pole strength", &physics.magnetStrength, 0.01f, 0.f, 50.f, "%.3f");
-            ImGui::DragFloat("Cutoff", &physics.magnetCutoff, 1.f, 1.f, 500.f);
+            ImGui::Checkbox("Show force vectors", &showMagnetForces);
+            ImGui::DragFloat("Arrow scale", &physics.magnetArrowScale, 1.0e-4f, 0.f, 1.f, "%.5f");
             ImGui::Text("pairs last step: %d", physics.magnetPairsLastStep);
+            ImGui::Text("largest pole force: %.1f", physics.largestPoleForce());
         }
     }
     ImGui::End();
