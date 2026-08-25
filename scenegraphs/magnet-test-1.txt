@@ -37,8 +37,7 @@ magnet m_a -4.62 18.33  4.20 0 1 0 s   # odd one out
 magnet m_a  2.97 18.33  4.21 0 1 0 n
 
 # --- cube B: +90 about Z puts its magnet face on -X ---
-# 3+1 polarity per the paper. The +-90 rolls mirror x, so A's -4.62 faces B's 2.97:
-# the odd magnets sit at mirrored corners and still attract when correctly aligned.
+# For the aligned case, move the 'n' back to the 2.97 / 4.21 line.
 transform t_b
 translate t_b 2.4 1.028 0
 rotate t_b 90 0 0 1
@@ -47,9 +46,9 @@ mesh m_b g_cube_b
 add-child m_b t_b
 add-child t_b root
 rigidbody m_b dynamic box 1.0
-magnet m_b -4.62 18.33 -4.08 0 1 0 s
+magnet m_b -4.62 18.33 -4.08 0 1 0 n   # odd one out
 magnet m_b  2.97 18.33 -4.08 0 1 0 s
 magnet m_b -4.62 18.33  4.20 0 1 0 s
-magnet m_b  2.97 18.33  4.21 0 1 0 n   # mirrored corner, faces A's odd magnet
+magnet m_b  2.97 18.33  4.21 0 1 0 s
 
 root root
