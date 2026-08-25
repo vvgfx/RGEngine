@@ -391,7 +391,6 @@ void PhysicsSystem::buildFromScene(const std::shared_ptr<sgraph::Scenegraph> &gr
         m.localPos = spec.localPos * it->bakedScale; // colliders are scaled the same way
         m.axis = glm::normalize(spec.axis);
         m.polarity = spec.polarity;
-        m.thickness *= it->bakedScale.x;
         it->magnets.push_back(m);
         magnetCount++;
     }
@@ -465,7 +464,7 @@ void PhysicsSystem::applyMagnetForces()
         return;
     }
 
-    // Expand every magnet into its two poles, so the interaction is one flat loop over pole pairs.
+    // One pole per magnet, signed by polarity, so the interaction is a flat loop over pole pairs.
     poles.clear();
     for (std::size_t i = 0; i < bodies.size(); i++)
     {
@@ -478,10 +477,7 @@ void PhysicsSystem::applyMagnetForces()
         for (const Magnet &m : bodies[i].magnets)
         {
             glm::vec3 pos = glm::vec3(x * glm::vec4(m.localPos, 1.f));
-            glm::vec3 axis = glm::vec3(x * glm::vec4(m.axis, 0.f));
-            glm::vec3 half = axis * (m.thickness * 0.5f) * m.polarity;
-            poles.push_back({pos + half, 1.f, radius, i, glm::vec3(0.f)});
-            poles.push_back({pos - half, -1.f, radius, i, glm::vec3(0.f)});
+            poles.push_back({pos, m.polarity, radius, i, glm::vec3(0.f)});
         }
     }
 
@@ -533,20 +529,15 @@ void PhysicsSystem::drawMagnets(std::vector<DebugLineVertex> &out) const
             glm::vec3 ref = std::abs(axis.x) < 0.9f ? glm::vec3(1, 0, 0) : glm::vec3(0, 0, 1);
             glm::vec3 u = glm::normalize(glm::cross(axis, ref));
             glm::vec3 v = glm::cross(axis, u);
-            glm::vec3 half = axis * (m.thickness * 0.5f) * m.polarity;
 
-            // a face disc at each pole, joined by the moment arm
-            for (int end = 0; end < 2; end++)
+            std::vector<glm::vec3> segments;
+            arcLocal(segments, c, u, v, radius, 0.f, TWO_PI, 12);
+            pushSeg(segments, c, c + axis * m.polarity * radius * 2.f);
+
+            const glm::vec4 &col = m.polarity > 0.f ? north : south;
+            for (const glm::vec3 &p : segments)
             {
-                glm::vec3 face = end == 0 ? c + half : c - half;
-                std::vector<glm::vec3> segments;
-                arcLocal(segments, face, u, v, radius, 0.f, TWO_PI, 12);
-                pushSeg(segments, c, face);
-                const glm::vec4 &col = end == 0 ? north : south;
-                for (const glm::vec3 &p : segments)
-                {
-                    out.push_back({glm::vec4(p, 1.f), col});
-                }
+                out.push_back({glm::vec4(p, 1.f), col});
             }
         }
     }

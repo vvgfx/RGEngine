@@ -41,7 +41,7 @@ namespace physics
         float largestPoleForce() const;
 
         bool magnetsEnabled = false;
-        float magnetStrength = 0.5f; // pole strength, uncalibrated: the paper gives no force data
+        float magnetStrength = 15.4f;
         float magnetArrowScale = 1.0e-3f;
         float magnetArrowMax = 2.0f; // I think we need this to prevent infinity lines.
         int magnetPairsLastStep = 0;
@@ -68,7 +68,6 @@ namespace physics
             glm::vec3 localPos{0.f};
             glm::vec3 axis{0.f, 1.f, 0.f};
             float polarity = 1.f;
-            float thickness = 1.5f; // poles sit on the two faces, this far apart
         };
 
         // Magnets expanded to their poles in world space, rebuilt each substep.

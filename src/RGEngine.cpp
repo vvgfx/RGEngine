@@ -510,7 +510,7 @@ void RGEngine::imGuiAddParams()
             ImGui::SeparatorText("Magnets");
             ImGui::Checkbox("Show magnets", &showMagnets);
             ImGui::Checkbox("Enable magnets", &physics.magnetsEnabled);
-            ImGui::DragFloat("Pole strength", &physics.magnetStrength, 0.01f, 0.f, 50.f, "%.3f");
+            ImGui::DragFloat("Pole strength", &physics.magnetStrength, 0.5f, 0.f, 500.f, "%.1f");
             ImGui::Checkbox("Show force vectors", &showMagnetForces);
             ImGui::DragFloat("Arrow scale", &physics.magnetArrowScale, 1.0e-4f, 0.f, 1.f, "%.5f");
             ImGui::Text("pairs last step: %d", physics.magnetPairsLastStep);
