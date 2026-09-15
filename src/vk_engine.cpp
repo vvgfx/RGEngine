@@ -77,10 +77,10 @@ void VulkanEngine::init()
     init_imgui();
 
     mainCamera.velocity = glm::vec3(0.f);
-    mainCamera.position = glm::vec3(30.f, -00.f, -085.f);
+    mainCamera.position = glm::vec3(30.f, -00.f, 085.f);
 
     mainCamera.pitch = 0;
-    mainCamera.yaw = 2.5f;
+    mainCamera.yaw = 0.0f;
 
     // everything went fine
     _isInitialized = true;
