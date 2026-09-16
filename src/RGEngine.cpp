@@ -19,7 +19,7 @@ void RGEngine::init()
 
     VulkanEngine::init();
 
-    std::string structurePath = {"../assets/outpostWithLights4.glb"};
+    std::string structurePath = {"../assets/outpostWithLights3.glb"};
 
     // this is called after the pipelines are initialzed.
     auto structureFile = loadGltf(structurePath);
@@ -73,7 +73,7 @@ void RGEngine::init_default_data()
     materialResources.metalRoughImage = _whiteImage;
     materialResources.metalRoughSampler = _defaultSamplerLinear;
 
-    GPUResourceAllocator _gpuResourceAllocator = GPUResourceAllocator::Instance();
+    GPUResourceAllocator &_gpuResourceAllocator = GPUResourceAllocator::Instance();
     // set the uniform buffer for the material data
     AllocatedBuffer materialConstants = _gpuResourceAllocator.create_buffer(sizeof(MaterialSystem::MaterialConstants),
                                                                             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);

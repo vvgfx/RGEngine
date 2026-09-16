@@ -1,10 +1,10 @@
 ﻿#include "GPUResourceAllocator.h"
 #include "MaterialSystem.h"
-#include "vk_engine.h"
 #include "fastgltf/types.hpp"
 #include "fmt/base.h"
 #include "sgraph/ScenegraphStructs.h"
 #include "stb_image.h"
+#include "vk_engine.h"
 #include "vk_types.h"
 #include <glm/gtx/quaternion.hpp>
 #include <iostream>
@@ -130,7 +130,7 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
         lights.push_back(ldata);
     }
 
-    GPUResourceAllocator gpuResourceAllocator = GPUResourceAllocator::Instance();
+    GPUResourceAllocator &gpuResourceAllocator = GPUResourceAllocator::Instance();
 
     // load all textures
     for (fastgltf::Image &image : gltf.images)
@@ -411,7 +411,7 @@ void sgraph::Scene::clearAll()
     VulkanEngine &engine = VulkanEngine::Instance();
     VkDevice dv = engine.GetVkDevice();
 
-    GPUResourceAllocator gpuResourceAllocator = GPUResourceAllocator::Instance();
+    GPUResourceAllocator &gpuResourceAllocator = GPUResourceAllocator::Instance();
 
     descriptorPool.destroy_pools(dv);
     gpuResourceAllocator.destroy_buffer(materialDataBuffer);
@@ -480,7 +480,7 @@ std::optional<AllocatedImage> load_image(fastgltf::Asset &asset, fastgltf::Image
 
     int width, height, nrChannels;
 
-    GPUResourceAllocator gpuResourceAllocator = GPUResourceAllocator::Instance();
+    GPUResourceAllocator &gpuResourceAllocator = GPUResourceAllocator::Instance();
 
     std::visit(
         fastgltf::visitor{

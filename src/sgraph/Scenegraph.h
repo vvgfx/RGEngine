@@ -9,7 +9,7 @@ namespace sgraph
     class Scenegraph : public IScenegraph
     {
       public:
-        virtual void makeScenegraph(std::unordered_map<std::string, std::shared_ptr<INode>> scenegraphNodes) override;
+        virtual void makeScenegraph(std::unordered_map<std::string, std::shared_ptr<INode>> &&scenegraphNodes) override;
 
         // virtual void addNode(const std::string name, std::shared_ptr<INode> node) override;
 
@@ -17,7 +17,7 @@ namespace sgraph
 
         // virtual std::unordered_map<std::string, std::shared_ptr<INode>> getNodes() override;
 
-        virtual std::optional<std::shared_ptr<INode>> getNode(std::string name) override;
+        virtual std::optional<std::shared_ptr<INode>> getNode(const std::string &name) override;
 
         virtual void setRoot(std::shared_ptr<INode> root) override;
 

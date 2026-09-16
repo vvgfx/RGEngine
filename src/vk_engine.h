@@ -39,7 +39,7 @@ struct DeletionQueue
 
     void push_function(std::function<void()> &&function)
     {
-        deletors.push_back(function);
+        deletors.push_back(std::move(function));
     }
 
     void flush()
@@ -257,12 +257,12 @@ class VulkanEngine
         return _device;
     }
 
-    AllocatedImage GetDefaultImage()
+    const AllocatedImage &GetDefaultImage()
     {
         return _whiteImage;
     }
 
-    AllocatedImage GetErrorImage()
+    const AllocatedImage &GetErrorImage()
     {
         return _errorCheckerboardImage;
     }

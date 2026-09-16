@@ -6,9 +6,9 @@
 
 using namespace sgraph;
 
-void Scenegraph::makeScenegraph(std::unordered_map<std::string, std::shared_ptr<INode>> scenegraphNodes)
+void Scenegraph::makeScenegraph(std::unordered_map<std::string, std::shared_ptr<INode>> &&scenegraphNodes)
 {
-    this->nodes = scenegraphNodes;
+    this->nodes = std::move(scenegraphNodes);
 }
 
 std::shared_ptr<INode> Scenegraph::getRoot()
@@ -16,13 +16,13 @@ std::shared_ptr<INode> Scenegraph::getRoot()
     return root;
 }
 
-std::optional<std::shared_ptr<INode>> Scenegraph::getNode(std::string name)
+std::optional<std::shared_ptr<INode>> Scenegraph::getNode(const std::string &name)
 {
-    if (nodes.contains(name))
+    auto found = nodes.find(name);
+    if (found != nodes.end())
     {
-        return nodes[name];
+        return found->second;
     }
-
     return std::nullopt;
 }
 

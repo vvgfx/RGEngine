@@ -18,7 +18,7 @@ namespace sgraph
          *
          * @param root root INode
          */
-        virtual void makeScenegraph(std::unordered_map<std::string, std::shared_ptr<INode>>) = 0;
+        virtual void makeScenegraph(std::unordered_map<std::string, std::shared_ptr<INode>> &&) = 0;
 
         // /**
         //  * @brief Add this INode to the scenegraph. This does not set the parent hierarchy, which must be manually
@@ -51,7 +51,7 @@ namespace sgraph
          * @param name name of the INode
          * @return std::shared_ptr<INode> the INode.
          */
-        virtual std::optional<std::shared_ptr<INode>> getNode(std::string name) = 0;
+        virtual std::optional<std::shared_ptr<INode>> getNode(const std::string &name) = 0;
 
         /**
          * @brief force cleanup on scenegraph nodes.

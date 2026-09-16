@@ -30,6 +30,13 @@ class GPUResourceAllocator
 
     VkDevice getDevice();
 
+    // prevent copy
+    GPUResourceAllocator(const GPUResourceAllocator &) = delete;
+    GPUResourceAllocator &operator=(const GPUResourceAllocator &) = delete;
+
+    // we now need the default constructor to be manually specified.
+    GPUResourceAllocator() = default;
+
   private:
     VmaAllocator _allocator;
     VkDevice _device;
