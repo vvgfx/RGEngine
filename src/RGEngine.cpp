@@ -180,7 +180,7 @@ void RGEngine::draw()
         rgraphInstance.ReadTimestamps(get_current_frame());
     }
 
-    lastCompleteStats = get_current_frame().stats;
+    lastCompleteStats = std::move(get_current_frame().stats);
     get_current_frame().stats = {};
 
     get_current_frame()._deletionQueue.flush();

@@ -683,7 +683,7 @@ void VulkanEngine::run()
     // main loop
     while (!bQuit)
     {
-        auto start = std::chrono::system_clock::now();
+        auto start = std::chrono::steady_clock::now();
 
         // Handle events on queue
         while (SDL_PollEvent(&e) != 0)
@@ -751,7 +751,7 @@ void VulkanEngine::run()
 
         draw();
 
-        auto end = std::chrono::system_clock::now();
+        auto end = std::chrono::steady_clock::now();
 
         // convert to microseconds (integer), and then come back to miliseconds
         auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);

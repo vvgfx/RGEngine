@@ -19,11 +19,11 @@ void sgraph::MeshNode::Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 
         if (s.material->data.passType == MaterialPass::Transparent)
         {
-            ctx.TransparentSurfaces.push_back(def);
+            ctx.TransparentSurfaces.emplace_back(std::move(def));
         }
         else
         {
-            ctx.OpaqueSurfaces.push_back(def);
+            ctx.OpaqueSurfaces.emplace_back(std::move(def));
         }
     }
 
@@ -33,7 +33,7 @@ void sgraph::MeshNode::Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 
 bool is_visible(const RenderObject &obj, const glm::mat4 &viewproj)
 {
-    std::array<glm::vec3, 8> corners{
+    constexpr static std::array<glm::vec3, 8> corners{
         glm::vec3{1, 1, 1},  glm::vec3{1, 1, -1},  glm::vec3{1, -1, 1},  glm::vec3{1, -1, -1},
         glm::vec3{-1, 1, 1}, glm::vec3{-1, 1, -1}, glm::vec3{-1, -1, 1}, glm::vec3{-1, -1, -1},
     };

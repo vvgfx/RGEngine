@@ -130,6 +130,7 @@ void rgraph::Rendergraph::Build(FrameData &frameData)
     // all the AddXPass would be called above.
 
     std::unordered_map<std::string, VkImageLayout> imgLayoutMap;
+    imgLayoutMap.reserve(images.size());
 
     for (auto &image : images)
     {
@@ -252,7 +253,7 @@ void rgraph::Rendergraph::Run(FrameData &frameData)
         {
             for (const auto &transition : transitionsIt->second)
             {
-                AllocatedImage img = images[transition.imageName];
+                const AllocatedImage &img = images.at(transition.imageName);
                 barrierMerger.transition_image(img.image, transition.currentLayout, transition.newLayout);
             }
         }
@@ -355,14 +356,14 @@ void rgraph::Rendergraph::Run(FrameData &frameData)
             stats.triangles = exec.triangles;
         }
         stats.CPUTime = passTime.count() / 1000.0f;
-        frameData.stats.passStats.push_back(stats);
+        frameData.stats.passStats.emplace_back(std::move(stats));
     }
 
     uint32_t totalEndQuery = queryIndex++;
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queryPool, totalEndQuery);
 
     frameData.timestampCount = timestampCount;
-    frameData.passIndices = passIndices;
+    frameData.passIndices = std::move(passIndices);
     frameData.totalTimeIndices = {totalStartQuery, totalEndQuery};
     // commenting this out for now, will change later
     // TODO: move swapchain transitions into the rendergraph.
