@@ -268,10 +268,21 @@ void RGEngine::draw()
 
 void RGEngine::imGuiAddParams()
 {
-    if (ImGui::Begin("RenderGraph details"))
+    const ImGuiViewport *viewport = ImGui::GetMainViewport();
+    const float panelWidth = 340.f;
+
+    ImVec2 panelSize(panelWidth, viewport->WorkSize.y - 20.f);
+
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - panelWidth - 10.f, viewport->WorkPos.y + 10.f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(panelSize, ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.95f);
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+    // passing nullptr for p_open keeps the close button off; the title bar arrow collapses the panel
+    if (ImGui::Begin("RenderGraph", nullptr, flags))
     {
-        // Summary section
-        ImGui::SeparatorText("RenderGraph Overview");
+        ImGui::SeparatorText("Overview");
         ImGui::Columns(2, nullptr, false);
         ImGui::Text("GPU Total");
         ImGui::NextColumn();
@@ -291,11 +302,9 @@ void RGEngine::imGuiAddParams()
             bool isCompute = pass.computeDispatches > 0;
 
             ImGui::PushID(pass.name.c_str());
-            if (ImGui::CollapsingHeader(pass.name.c_str()))
+            if (ImGui::TreeNode(pass.name.c_str()))
             {
-                ImGui::Indent();
                 ImGui::Columns(2, nullptr, false);
-
                 ImGui::Text("GPU");
                 ImGui::NextColumn();
                 ImGui::Text("%.3f ms", pass.GPUTime);
@@ -325,7 +334,7 @@ void RGEngine::imGuiAddParams()
                 }
 
                 ImGui::Columns(1);
-                ImGui::Unindent();
+                ImGui::TreePop();
             }
             ImGui::PopID();
         }
