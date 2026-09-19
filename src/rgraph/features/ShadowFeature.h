@@ -10,7 +10,7 @@ namespace rgraph
         bool enabled = true;
         float pcfRadius = 1.0f;
         float cascadeSplitLambda = 0.85f; // 0 = uniform splits, 1 = fully logarithmic
-        float maxDistance = 120.0f;       // world units the cascades need to cover
+        float maxDistance = 400.0f;       // world units the cascades need to cover
     };
 
     /// Matches ShadowData in shadow_input.glsl.

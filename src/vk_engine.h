@@ -101,7 +101,9 @@ struct GPUSceneData
     glm::mat4 view;
     glm::mat4 proj;
     glm::mat4 viewproj;
-    glm::vec4 ambientColor{0.10f, 0.20f, 0.40f, 1.f}; // sky tint; editable from the UI
+    // Sky tint, editable from the UI. Near-black: this is the night sky the lamp and point-shadow
+    // work is tuned against. The ColorEdit3 shows it as 0-255, so this reads as R2 G2 B3.
+    glm::vec4 ambientColor{2.f / 255.f, 2.f / 255.f, 3.f / 255.f, 1.f};
     glm::vec4 sunlightDirection{0.f, 1.f, 0.5f, 1.f};  // w for sun power
     glm::vec4 sunlightColor{1.f};
     glm::vec4 cameraPos{};
@@ -155,7 +157,9 @@ struct DrawContext
 
     // glTF light units vary by exporter, so intensity is scaled at upload time. Sun and local
     // lights scale separately: a single dial cannot express "night" without also killing the lamps.
-    float sunIntensityScale = 1.0f;
+    // Defaults to the night look, which is what the lamps, point shadows and light culling are
+    // tuned against. Daylight is this one dial back up.
+    float sunIntensityScale = 0.02f;
     float localIntensityScale = 1.0f;
 };
 
