@@ -36,16 +36,21 @@ void RGEngine::init()
     VkExtent3D extent = {_windowExtent.width, _windowExtent.height, 1};
     computeFeature = std::make_shared<rgraph::ComputeBackgroundFeature>(_device, _mainDeletionQueue, extent, _drawImage);
     MaterialSystemCreateInfo msCreateInfo = {_device, _drawImage.imageFormat, _depthImage.imageFormat, _gpuSceneDataDescriptorLayout};
-    PBRFeature = std::make_shared<rgraph::PBRShadingFeature>(mainDrawContext, _device, msCreateInfo, sceneData, _gpuSceneDataDescriptorLayout,
-                                                             _mainDeletionQueue);
+    // The legacy forward renderer. Never registered (see AddFeature below), but its constructor still
+    // built pipelines, and it shares light_mesh.frag with the transparent pass - which now needs a
+    // fourth set for the light grid that this one has no layout for.
+    // PBRFeature = std::make_shared<rgraph::PBRShadingFeature>(mainDrawContext, _device, msCreateInfo, sceneData, _gpuSceneDataDescriptorLayout,
+    //                                                          _mainDeletionQueue);
 
     // must precede the deferred feature: its composite pipeline layout needs the shadow set layout.
     shadowFeature = std::make_shared<rgraph::ShadowFeature>(_device, _mainDeletionQueue, mainDrawContext, sceneData);
     localShadowFeature = std::make_shared<rgraph::LocalShadowFeature>(_device, _mainDeletionQueue, mainDrawContext, sceneData);
+    lightCullFeature =
+        std::make_shared<rgraph::LightCullFeature>(_device, _mainDeletionQueue, mainDrawContext, sceneData, _drawImage.imageExtent);
 
     deferredFeature = std::make_shared<rgraph::DeferredRenderingFeature>(mainDrawContext, _device, sceneData, _gpuSceneDataDescriptorLayout,
                                                                          msCreateInfo, _mainDeletionQueue, shadowFeature.get(),
-                                                                         localShadowFeature.get());
+                                                                         localShadowFeature.get(), lightCullFeature.get());
     // create MSAA images. TODO: move these out somewhere later.
     // createMsaaImages(); // 8x MSAA targets, ~354MB, only used by the disabled PBRShadingFeature
 
@@ -94,6 +99,8 @@ void RGEngine::init()
     // registration order is execution order: cascades must be rendered before the composite reads them.
     rgraphInstance.AddFeature(shadowFeature);
     rgraphInstance.AddFeature(localShadowFeature);
+    // lightCullFeature is not added here: its pass is declared by deferredFeature, between the
+    // geometry pass that fills the G-buffer and the composite that reads the grid.
     rgraphInstance.AddFeature(deferredFeature);
 
     // after the deferred passes: reflections need the lit image to reflect
@@ -414,6 +421,7 @@ void RGEngine::imGuiAddParams()
     {
         rgraph::LocalShadowSettings &l = localShadowFeature->settings;
         ImGui::Checkbox("Point shadows", &l.enabled);
+        ImGui::Checkbox("Cull offscreen lights", &l.cullOffscreen);
         ImGui::SliderInt("Shadow casters", &l.maxLights, 0, int(rgraph::LocalShadowFeature::MAX_LIGHTS));
         ImGui::SliderFloat("Local normal bias", &l.normalBias, 0.0f, 0.5f);
         ImGui::SliderFloat("Local PCF", &l.pcfRadius, 0.0f, 4.0f);
@@ -431,7 +439,9 @@ void RGEngine::imGuiAddParams()
 
     if (ImGui::CollapsingHeader("Debug view", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        static const char *modes[] = {"Off", "Albedo", "Normal", "SSAO", "Shadow", "Cascade", "Roughness", "Metallic", "Emissive", "Shadow atlas"};
+        static const char *modes[] = {"Off",       "Albedo",   "Normal",   "SSAO",         "Shadow",
+                                      "Cascade",   "Roughness", "Metallic", "Emissive",    "Shadow atlas",
+                                      "Tile lights"};
         int mode = int(sceneData.debugParams.x);
         if (ImGui::Combo("Mode", &mode, modes, IM_ARRAYSIZE(modes)))
         {
@@ -440,6 +450,13 @@ void RGEngine::imGuiAddParams()
 
         // debug views bypass the tonemapper (and FXAA) so their values stay readable
         postFeature->settings.passthrough = mode != 0;
+
+        // A/B the tile grid against walking all 97 lights. The image must not change.
+        bool bypassCull = sceneData.debugParams.z > 0.5f;
+        if (ImGui::Checkbox("Bypass light cull", &bypassCull))
+        {
+            sceneData.debugParams.z = bypassCull ? 1.0f : 0.0f;
+        }
     }
 
     if (ImGui::CollapsingHeader("Reflections", ImGuiTreeNodeFlags_DefaultOpen))

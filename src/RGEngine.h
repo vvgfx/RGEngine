@@ -2,6 +2,7 @@
 
 #include "rgraph/Rendergraph.h"
 #include "rgraph/features/ComputeBackgroundFeature.h"
+#include "rgraph/features/LightCullFeature.h"
 #include "rgraph/features/LocalShadowFeature.h"
 #include "rgraph/features/SSRFeature.h"
 #include "rgraph/features/ShadowFeature.h"
@@ -42,6 +43,7 @@ class RGEngine : public VulkanEngine
     std::shared_ptr<rgraph::DeferredRenderingFeature> deferredFeature;
     std::shared_ptr<rgraph::ShadowFeature> shadowFeature;
     std::shared_ptr<rgraph::LocalShadowFeature> localShadowFeature;
+    std::shared_ptr<rgraph::LightCullFeature> lightCullFeature;
 
     // mirrored into GPUSceneData::ssaoParams.x each frame; int so ImGui can edit it
     int ssaoSampleCount = 16;

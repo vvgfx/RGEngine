@@ -1,0 +1,182 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+// One workgroup per 16x16 tile, one thread per pixel.
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D inPosition;
+
+layout(set = 0, binding = 1, std430) writeonly buffer LightGridBuffer
+{
+    uint tileCounts[];
+}
+lightGrid;
+
+layout(set = 0, binding = 2, std430) writeonly buffer LightIndexBuffer
+{
+    uint indices[];
+}
+lightIndexList;
+
+struct PointLight
+{
+    mat4 transform;
+    vec3 color;
+    float intensity;
+    float range;
+    int type;
+    int shadowIndex;
+};
+
+layout(set = 0, binding = 3) uniform LightData
+{
+    PointLight pointLights[128];
+    int numLights;
+}
+lightData;
+
+layout(set = 0, binding = 4) uniform SceneData
+{
+    mat4 view;
+    mat4 proj;
+    mat4 viewproj;
+    vec4 ambientColor;
+    vec4 sunlightDirection;
+    vec4 sunlightColor;
+    vec4 cameraPos;
+    mat4 invViewproj;
+    vec4 ssaoParams;
+    vec4 debugParams;
+}
+sceneData;
+
+layout(push_constant) uniform CullPush
+{
+    uvec4 dims; // xy = tile counts, zw = screen size
+}
+pc;
+
+const int MAX_LIGHTS_PER_TILE = 64;
+
+// Depth bounds are reduced as uint so they can go through atomicMin/atomicMax.
+shared uint tileMinDepth;
+shared uint tileMaxDepth;
+shared uint tileLightCount;
+shared uint tileLights[MAX_LIGHTS_PER_TILE];
+
+/// Unproject an NDC point onto the far plane to get a world-space direction from the camera.
+vec3 rayThrough(vec2 ndc)
+{
+    vec4 world = sceneData.invViewproj * vec4(ndc, 1.0, 1.0);
+    return normalize(world.xyz / world.w - sceneData.cameraPos.xyz);
+}
+
+void main()
+{
+    uint localIndex = gl_LocalInvocationIndex;
+
+    if (localIndex == 0)
+    {
+        tileMinDepth = 0xFFFFFFFFu;
+        tileMaxDepth = 0u;
+        tileLightCount = 0u;
+    }
+    barrier();
+
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 screen = ivec2(pc.dims.zw);
+
+    if (texel.x < screen.x && texel.y < screen.y)
+    {
+        vec4 posSample = texelFetch(inPosition, texel, 0);
+        if (posSample.w >= 0.5) // skip sky: it would stretch the bounds to infinity
+        {
+            float dist = length(posSample.xyz - sceneData.cameraPos.xyz);
+            uint asUint = floatBitsToUint(dist); // non-negative floats compare correctly as uints
+            atomicMin(tileMinDepth, asUint);
+            atomicMax(tileMaxDepth, asUint);
+        }
+    }
+    barrier();
+
+    // Only the far bound is kept. The transparent pass shares this list, and its fragments sit in
+    // front of the opaque depth the G-buffer recorded, so a near bound would cull lights that reach
+    // them. A tile of pure sky still gets transparent geometry, so it is unbounded rather than empty.
+    bool tileHasGeometry = tileMinDepth != 0xFFFFFFFFu;
+    float maxDepth = tileHasGeometry ? uintBitsToFloat(tileMaxDepth) : 1e30;
+
+    // Four side planes from the tile's NDC rect. Each plane passes through the camera, so its
+    // normal is the cross product of two adjacent corner rays.
+    vec2 tileOrigin = vec2(gl_WorkGroupID.xy) * 16.0;
+    vec2 ndcMin = (tileOrigin / vec2(screen)) * 2.0 - 1.0;
+    vec2 ndcMax = ((tileOrigin + 16.0) / vec2(screen)) * 2.0 - 1.0;
+
+    vec3 r00 = rayThrough(vec2(ndcMin.x, ndcMin.y));
+    vec3 r10 = rayThrough(vec2(ndcMax.x, ndcMin.y));
+    vec3 r11 = rayThrough(vec2(ndcMax.x, ndcMax.y));
+    vec3 r01 = rayThrough(vec2(ndcMin.x, ndcMax.y));
+
+    // inward-facing normals
+    vec3 planes[4];
+    planes[0] = normalize(cross(r00, r01));
+    planes[1] = normalize(cross(r11, r10));
+    planes[2] = normalize(cross(r10, r00));
+    planes[3] = normalize(cross(r01, r11));
+
+    vec3 camera = sceneData.cameraPos.xyz;
+
+    for (uint i = localIndex; i < uint(lightData.numLights); i += 256u)
+    {
+        // Directional lights reach everything, so culling them is meaningless; the shaders keep a
+        // separate unculled loop for them.
+        if (lightData.pointLights[i].type == 0)
+        {
+            continue;
+        }
+
+        vec3 pos = lightData.pointLights[i].transform[3].xyz;
+        float range = lightData.pointLights[i].range;
+
+        // reject lights entirely behind this tile's geometry
+        float along = dot(pos - camera, normalize(r00 + r10 + r11 + r01));
+        if (along - range > maxDepth)
+        {
+            continue;
+        }
+
+        vec3 rel = pos - camera;
+        bool inside = true;
+        for (int p = 0; p < 4; p++)
+        {
+            if (dot(rel, planes[p]) < -range)
+            {
+                inside = false;
+                break;
+            }
+        }
+
+        if (inside)
+        {
+            uint slot = atomicAdd(tileLightCount, 1u);
+            if (slot < uint(MAX_LIGHTS_PER_TILE))
+            {
+                tileLights[slot] = i;
+            }
+        }
+    }
+    barrier();
+
+    uint tileIndex = gl_WorkGroupID.y * pc.dims.x + gl_WorkGroupID.x;
+    uint count = min(tileLightCount, uint(MAX_LIGHTS_PER_TILE));
+
+    if (localIndex == 0)
+    {
+        lightGrid.tileCounts[tileIndex] = count;
+    }
+
+    for (uint i = localIndex; i < count; i += 256u)
+    {
+        lightIndexList.indices[tileIndex * uint(MAX_LIGHTS_PER_TILE) + i] = tileLights[i];
+    }
+}

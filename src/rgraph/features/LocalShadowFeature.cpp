@@ -27,7 +27,75 @@ namespace
         {{1, 0, 0}, {0, -1, 0}}, {{-1, 0, 0}, {0, -1, 0}}, {{0, 1, 0}, {0, 0, 1}},
         {{0, -1, 0}, {0, 0, -1}}, {{0, 0, 1}, {0, -1, 0}}, {{0, 0, -1}, {0, -1, 0}},
     };
+
+    /// A light already holding a slot must be beaten by this margin before it is evicted. Without
+    /// it the ranking flickers as the camera drifts and shadows visibly pop on and off.
+    constexpr float INCUMBENT_BONUS = 1.35f;
+
+    /**
+     * @brief Is a sphere inside the 90 degree frustum of one cube face?
+     *
+     * The side planes of a 90 degree frustum are the diagonals, so in the face's own basis the test
+     * collapses to |x| <= z and |y| <= z. Padding z by radius*sqrt(2) gives the sphere form: the
+     * plane normal is (1,0,1)/sqrt(2), so a sphere of radius r reaches r*sqrt(2) along z.
+     *
+     * Done directly rather than through is_visible(), which projects the eight AABB corners and
+     * divides by w. The light sits at the frustum apex, so anything straddling the face plane has
+     * corners with w < 0, the divide flips their sign, and a caster that genuinely overlaps the
+     * face can be rejected. A dropped caster is a missing shadow; this test only ever errs towards
+     * drawing too much.
+     */
+    bool sphereInFace(const glm::vec3 &delta, float radius, uint32_t face)
+    {
+        const glm::vec3 &fwd = FACES[face].forward;
+        const glm::vec3 &up = FACES[face].up;
+        const glm::vec3 right = glm::cross(fwd, up);
+
+        const float z = glm::dot(delta, fwd) + radius * 1.41421356f;
+        return z >= std::abs(glm::dot(delta, right)) && z >= std::abs(glm::dot(delta, up));
+    }
+
 } // namespace
+
+bool rgraph::LocalShadowFeature::lightInView(const glm::vec3 &centre, float radius) const
+{
+    if (!settings.cullOffscreen)
+    {
+        return true;
+    }
+
+    // Gribb-Hartmann: each clip plane is row 3 of the viewproj plus or minus one of the other rows.
+    // glm is column major, so row r reads across the columns as m[0][r]..m[3][r].
+    //
+    // The z pair here is the OpenGL [-1,1] form, while Vulkan clips to [0,1] and reverse-Z swaps
+    // which of the two is the near plane. That only ever makes the test more permissive -- inside
+    // the frustum w > 0 and 0 <= z <= w, so row3 + row2 is positive there and never false-rejects.
+    const glm::mat4 &m = sceneData.viewproj;
+
+    for (int i = 0; i < 6; i++)
+    {
+        const int axis = i >> 1;
+        const float sign = (i & 1) ? -1.0f : 1.0f;
+
+        glm::vec4 plane;
+        for (int col = 0; col < 4; col++)
+        {
+            plane[col] = m[col][3] + sign * m[col][axis];
+        }
+
+        const float len = glm::length(glm::vec3(plane));
+        if (len <= 0.0f)
+        {
+            continue;
+        }
+
+        if ((glm::dot(glm::vec3(plane), centre) + plane.w) / len < -radius)
+        {
+            return false;
+        }
+    }
+    return true;
+}
 
 rgraph::LocalShadowFeature::LocalShadowFeature(VkDevice device, DeletionQueue &delQueue, DrawContext &drawContext, GPUSceneData &sceneData)
     : drawContext(drawContext), sceneData(sceneData)
@@ -117,10 +185,10 @@ int rgraph::LocalShadowFeature::ShadowIndexFor(int lightIndex) const
 void rgraph::LocalShadowFeature::selectLights()
 {
     casters.clear();
-    std::fill(shadowIndexByLight.begin(), shadowIndexByLight.end(), -1);
 
     if (!settings.enabled)
     {
+        std::fill(shadowIndexByLight.begin(), shadowIndexByLight.end(), -1);
         return;
     }
 
@@ -135,14 +203,34 @@ void rgraph::LocalShadowFeature::selectLights()
         }
 
         const glm::vec3 pos = glm::vec3(light.transform[3]);
+        const float range = std::max(light.range, 0.1f);
+
+        // A lamp whose whole reach is off screen shades nothing, so its six faces are pure waste.
+        // Ranges here are 2-8 units, so most of the 96 lights fail this on any given frame.
+        if (!lightInView(pos, range))
+        {
+            continue;
+        }
+
         const float distSq = glm::dot(pos - camera, pos - camera);
 
         // Prefer bright, nearby lights. Lights whose reach cannot even touch the camera's vicinity
         // contribute little on screen, so falling off with distance is the right bias.
-        casters.push_back({i, light.intensity * light.range / (distSq + 1.0f)});
+        float importance = light.intensity * range / (distSq + 1.0f);
+
+        // shadowIndexByLight still holds last frame's assignment at this point, which is all the
+        // state the hysteresis needs.
+        if (i < int(shadowIndexByLight.size()) && shadowIndexByLight[i] >= 0)
+        {
+            importance *= INCUMBENT_BONUS;
+        }
+
+        casters.push_back({i, importance});
     }
 
-    const int budget = std::min<int>(settings.maxLights, int(MAX_LIGHTS));
+    std::fill(shadowIndexByLight.begin(), shadowIndexByLight.end(), -1);
+
+    const int budget = std::clamp(settings.maxLights, 0, int(MAX_LIGHTS));
     if (int(casters.size()) > budget)
     {
         std::partial_sort(casters.begin(), casters.begin() + budget, casters.end(),
@@ -238,7 +326,6 @@ void rgraph::LocalShadowFeature::renderPass(PassExecution &passExec)
 
     uint32_t draws = 0;
     uint32_t tris = 0;
-    std::vector<const RenderObject *> nearby;
 
     for (uint32_t slot = 0; slot < casters.size(); slot++)
     {
@@ -246,8 +333,8 @@ void rgraph::LocalShadowFeature::renderPass(PassExecution &passExec)
         const glm::vec3 lightPos = glm::vec3(light.transform[3]);
         const float range = std::max(light.range, 0.1f);
 
-        // Cull once per light rather than once per face: the surviving set is small enough that
-        // redrawing it for all six faces is cheaper than six frustum passes over the whole scene.
+        // Sphere test against the light's reach first: one pass over the scene instead of six.
+        // The bounds are kept so the per-face test below does not recompute them.
         nearby.clear();
         for (const RenderObject &obj : drawContext.OpaqueSurfaces)
         {
@@ -260,7 +347,7 @@ void rgraph::LocalShadowFeature::renderPass(PassExecution &passExec)
             const float reach = range + radius;
             if (glm::dot(delta, delta) <= reach * reach)
             {
-                nearby.push_back(&obj);
+                nearby.push_back({&obj, delta, radius});
             }
         }
 
@@ -281,8 +368,16 @@ void rgraph::LocalShadowFeature::renderPass(PassExecution &passExec)
             VkRect2D scissor{{int32_t(originX), int32_t(originY)}, {TILE_RES, TILE_RES}};
             vkCmdSetScissor(passExec.cmd, 0, 1, &scissor);
 
-            for (const RenderObject *obj : nearby)
+            for (const NearbyObject &entry : nearby)
             {
+                // A caster inside the light's sphere still only appears in one or two of the six
+                // faces, so without this every face redraws the whole nearby set.
+                if (!sphereInFace(entry.delta, entry.radius, face))
+                {
+                    continue;
+                }
+
+                const RenderObject *obj = entry.obj;
                 ShadowPush push{shadowData.faceViewProj[index], obj->modelMatrix, obj->vertexBufferAddress};
                 vkCmdPushConstants(passExec.cmd, depthPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowPush), &push);
 

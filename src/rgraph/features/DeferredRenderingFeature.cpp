@@ -1,4 +1,5 @@
 #include "rgraph/features/DeferredRenderingFeature.h"
+#include "LightCullFeature.h"
 #include "LocalShadowFeature.h"
 #include "ShadowFeature.h"
 #include "GPUResourceAllocator.h"
@@ -14,8 +15,9 @@ bool is_visible(const RenderObject &obj, const glm::mat4 &viewproj);
 rgraph::DeferredRenderingFeature::DeferredRenderingFeature(DrawContext &drawContext, VkDevice _device, GPUSceneData &gpuSceneData,
                                                            VkDescriptorSetLayout gpuSceneLayout, MaterialSystemCreateInfo &materialSystemCreateInfo,
                                                            DeletionQueue &delQueue, ShadowFeature *shadowFeature,
-                                                           LocalShadowFeature *localShadowFeature)
-    : drawContext(drawContext), gpuSceneData(gpuSceneData), shadowFeature(shadowFeature), localShadowFeature(localShadowFeature)
+                                                           LocalShadowFeature *localShadowFeature, LightCullFeature *lightCullFeature)
+    : drawContext(drawContext), gpuSceneData(gpuSceneData), shadowFeature(shadowFeature), localShadowFeature(localShadowFeature),
+      lightCullFeature(lightCullFeature)
 {
     _gpuSceneDataDescriptorLayout = gpuSceneLayout;
 
@@ -84,6 +86,13 @@ void rgraph::DeferredRenderingFeature::Register(rgraph::Rendergraph *builder)
             pass.CreatesBuffer("gpuSceneBuffer", sizeof(GPUSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
         },
         [&](PassExecution &passExec) { geometryPass(passExec); });
+
+    // Between geometry and composite: the cull reads the G-buffer the geometry pass just filled,
+    // and the composite reads the grid it produces.
+    if (lightCullFeature != nullptr)
+    {
+        lightCullFeature->RegisterCullPass(builder);
+    }
 
     builder->AddGraphicsPass(
         "Composite Pass",
@@ -267,9 +276,10 @@ void rgraph::DeferredRenderingFeature::compositePass(rgraph::PassExecution &pass
 
     vkCmdBindPipeline(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline.pipeline);
 
-    VkDescriptorSet sets[] = {compDescriptor, sceneDescriptor, lightDescriptor, shadowFeature->GetFrameSet(),
-                              localShadowFeature->GetFrameSet()};
-    vkCmdBindDescriptorSets(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline.layout, 0, 5, sets, 0, nullptr);
+    VkDescriptorSet sets[] = {compDescriptor,           sceneDescriptor,
+                              lightDescriptor,          shadowFeature->GetFrameSet(),
+                              localShadowFeature->GetFrameSet(), lightCullFeature->GetFrameSet()};
+    vkCmdBindDescriptorSets(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline.layout, 0, 6, sets, 0, nullptr);
 
     VkViewport viewport = {};
     viewport.x = 0;
@@ -348,8 +358,12 @@ void rgraph::DeferredRenderingFeature::transparentPass(rgraph::PassExecution &pa
 
     vkCmdBindPipeline(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline.pipeline);
 
+    // set 3 is the tile light grid; the cull pass ran before the composite, so it is ready here
     VkDescriptorSet sets[] = {sceneDescriptor, lightDescriptor};
     vkCmdBindDescriptorSets(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline.layout, 0, 2, sets, 0, nullptr);
+
+    VkDescriptorSet gridSet = lightCullFeature->GetFrameSet();
+    vkCmdBindDescriptorSets(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline.layout, 3, 1, &gridSet, 0, nullptr);
 
     VkViewport viewport = {};
     viewport.x = 0;
@@ -468,9 +482,10 @@ void rgraph::DeferredRenderingFeature::createPipelines(MaterialSystemCreateInfo 
     }
 
     VkDescriptorSetLayout compLayouts[] = {compDescriptorSetLayout, materialSystemCreateInfo._gpuSceneDataDescriptorLayout, lightDescriptorSetLayout,
-                                           shadowFeature->GetSetLayout(), localShadowFeature->GetSetLayout()};
+                                           shadowFeature->GetSetLayout(), localShadowFeature->GetSetLayout(),
+                                           lightCullFeature->GetSetLayout()};
 
-    meshLayoutInfo.setLayoutCount = 5;
+    meshLayoutInfo.setLayoutCount = 6;
     meshLayoutInfo.pSetLayouts = compLayouts;
     meshLayoutInfo.pPushConstantRanges = nullptr;
     meshLayoutInfo.pushConstantRangeCount = 0;
@@ -510,9 +525,10 @@ void rgraph::DeferredRenderingFeature::createPipelines(MaterialSystemCreateInfo 
         fmt::println("Error when building the transparent fragment shader module\n");
     }
 
-    VkDescriptorSetLayout transparentLayouts[] = {materialSystemCreateInfo._gpuSceneDataDescriptorLayout, lightDescriptorSetLayout, materialLayout};
+    VkDescriptorSetLayout transparentLayouts[] = {materialSystemCreateInfo._gpuSceneDataDescriptorLayout, lightDescriptorSetLayout, materialLayout,
+                                                  lightCullFeature->GetSetLayout()};
 
-    meshLayoutInfo.setLayoutCount = 3;
+    meshLayoutInfo.setLayoutCount = 4;
     meshLayoutInfo.pSetLayouts = transparentLayouts;
     meshLayoutInfo.pPushConstantRanges = &matrixRange;
     meshLayoutInfo.pushConstantRangeCount = 1;

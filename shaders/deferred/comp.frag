@@ -10,6 +10,9 @@
 #define LOCAL_SHADOW_SET 4
 #include "../shadow/local_shadow.glsl"
 
+#define LIGHT_GRID_SET 5
+#include "../lighting/light_grid.glsl"
+
 layout(location = 0) in vec2 inUV;
 
 layout(location = 0) out vec4 outFragColor;
@@ -146,6 +149,17 @@ vec3 cascadeTint(float viewDepth)
 
 void main()
 {
+    // Tile light count, ahead of the sky early-out so tiles with no geometry are visible too.
+    // Black = 0, then blue -> green -> red up to the 64 cap.
+    if (int(sceneData.debugParams.x) == 10)
+    {
+        uint n = lightTileCount(lightTileIndex(gl_FragCoord.xy));
+        float t = float(n) / float(MAX_LIGHTS_PER_TILE);
+        vec3 ramp = vec3(clamp(t * 3.0 - 1.0, 0.0, 1.0), clamp(1.0 - abs(t * 3.0 - 1.0), 0.0, 1.0), clamp(1.0 - t * 3.0, 0.0, 1.0));
+        outFragColor = vec4(n == 0u ? vec3(0.0) : ramp, 1.0);
+        return;
+    }
+
     vec4 positionSample = texture(inPosition, inUV);
 
     // The G-buffer clears position to 0 and mrt.frag writes w = 1, so w marks "geometry here".
@@ -175,54 +189,64 @@ void main()
     vec3 viewVec = normalize(sceneData.cameraPos.xyz - position);
     float viewDepth = length(position - sceneData.cameraPos.xyz);
 
+    // Shared by both loops below.
+    #define SHADE_LIGHT(lightVec, radiance)                                                                                    \
+        {                                                                                                                      \
+            float nDotL = max(dot(normal, lightVec), 0.0f);                                                                    \
+            if (nDotL > 0.0)                                                                                                   \
+            {                                                                                                                  \
+                vec3 halfwayVec = normalize(viewVec + lightVec);                                                               \
+                float NDF = DistributionGGX(normal, halfwayVec, roughness);                                                    \
+                float G = GeometrySmith(normal, viewVec, lightVec, roughness);                                                 \
+                vec3 F = FresnelSchlick(clamp(dot(halfwayVec, viewVec), 0.0f, 1.0f), F0);                                      \
+                vec3 specular = (NDF * G * F) / (4.0 * max(dot(normal, viewVec), 0.0f) * nDotL + 0.001);                       \
+                vec3 kD = (vec3(1.0f) - F) * (1.0 - metallic);                                                                 \
+                Lo += (kD * albedo / PI + specular) * radiance * nDotL;                                                        \
+            }                                                                                                                  \
+        }
+
+    // Directional lights reach everything, so they are never culled.
     for (int i = 0; i < lightData.numLights; i++)
     {
-        // Read members individually: copying the struct pulls its mat4 for every light, and almost
-        // all of them are about to fail the range test anyway.
-        vec3 lightVec;
-        vec3 radiance;
-
-        if (lightData.pointLights[i].type == 0)
-        {
-            // glTF directional lights shine along the node's -Z, so the vector towards it is +Z.
-            lightVec = normalize(lightData.pointLights[i].transform[2].xyz);
-            radiance = lightData.pointLights[i].color * lightData.pointLights[i].intensity;
-            radiance *= sampleShadow(position, viewDepth, normal, lightVec);
-        }
-        else
-        {
-            vec3 lightDistVec = lightData.pointLights[i].transform[3].xyz - position;
-
-            // squared compare: rejects without a sqrt, and touches only one matrix column
-            float distSq = dot(lightDistVec, lightDistVec);
-            float range = lightData.pointLights[i].range;
-            if (distSq > range * range)
-                continue;
-
-            lightVec = lightDistVec / sqrt(distSq);
-            radiance = lightData.pointLights[i].color * lightData.pointLights[i].intensity / max(distSq, 1e-4);
-
-            radiance *= sampleLocalShadow(lightData.pointLights[i].shadowIndex, position,
-                                          lightData.pointLights[i].transform[3].xyz, normal);
-        }
-
-        float nDotL = max(dot(normal, lightVec), 0.0f);
-        if (nDotL <= 0.0)
+        if (lightData.pointLights[i].type != 0)
             continue;
 
-        vec3 halfwayVec = normalize(viewVec + lightVec);
+        // glTF directional lights shine along the node's -Z, so the vector towards it is +Z.
+        vec3 lightVec = normalize(lightData.pointLights[i].transform[2].xyz);
+        vec3 radiance = lightData.pointLights[i].color * lightData.pointLights[i].intensity;
+        radiance *= sampleShadow(position, viewDepth, normal, lightVec);
 
-        float NDF = DistributionGGX(normal, halfwayVec, roughness);
-        float G = GeometrySmith(normal, viewVec, lightVec, roughness);
-        vec3 F = FresnelSchlick(clamp(dot(halfwayVec, viewVec), 0.0f, 1.0f), F0);
+        SHADE_LIGHT(lightVec, radiance)
+    }
 
-        vec3 numerator = NDF * G * F;
-        float denominator = 4.0 * max(dot(normal, viewVec), 0.0f) * nDotL + 0.001;
-        vec3 specular = numerator / denominator;
+    // Local lights come from this pixel's tile, so a scene with 97 lamps costs a handful here.
+    // debugParams.z bypasses the grid and walks every light, so the two paths can be compared
+    // without rebuilding: any difference in the image is a cull bug.
+    bool bypassCull = sceneData.debugParams.z > 0.5;
+    uint tile = lightTileIndex(gl_FragCoord.xy);
+    uint tileLights = bypassCull ? uint(lightData.numLights) : lightTileCount(tile);
 
-        vec3 kD = (vec3(1.0f) - F) * (1.0 - metallic);
+    for (uint t = 0u; t < tileLights; t++)
+    {
+        int i = bypassCull ? int(t) : int(lightTileEntry(tile, t));
+        if (bypassCull && lightData.pointLights[i].type == 0)
+            continue;
 
-        Lo += (kD * albedo / PI + specular) * radiance * nDotL;
+        vec3 lightDistVec = lightData.pointLights[i].transform[3].xyz - position;
+
+        // squared compare: rejects without a sqrt, and touches only one matrix column
+        float distSq = dot(lightDistVec, lightDistVec);
+        float range = lightData.pointLights[i].range;
+        if (distSq > range * range)
+            continue;
+
+        vec3 lightVec = lightDistVec / sqrt(distSq);
+        vec3 radiance = lightData.pointLights[i].color * lightData.pointLights[i].intensity / max(distSq, 1e-4);
+
+        radiance *= sampleLocalShadow(lightData.pointLights[i].shadowIndex, position,
+                                      lightData.pointLights[i].transform[3].xyz, normal);
+
+        SHADE_LIGHT(lightVec, radiance)
     }
 
     float ao = computeSSAO(position, normal);

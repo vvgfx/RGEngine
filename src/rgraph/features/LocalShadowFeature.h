@@ -7,10 +7,13 @@ namespace rgraph
 {
     struct LocalShadowSettings
     {
-        bool enabled = false; // parked: re-enable once sun and lamp intensity are separable
-        int maxLights = 12;      // shadow casters; each costs six cube faces
+        bool enabled = true;
+        int maxLights = 12; // shadow casters; each costs six cube faces
         float normalBias = 0.05f;
         float pcfRadius = 1.0f;
+
+        /// Skip lights whose reach never touches the view. Off is useful for A/B measurement only.
+        bool cullOffscreen = true;
     };
 
     /**
@@ -62,8 +65,20 @@ namespace rgraph
             float importance;
         };
 
+        /// A surface inside one light's reach, carrying the bounds the per-face test needs so the
+        /// six faces do not each recompute them.
+        struct NearbyObject
+        {
+            const RenderObject *obj;
+            glm::vec3 delta; // centre - lightPos
+            float radius;
+        };
+
         void selectLights();
         void renderPass(PassExecution &passExec);
+
+        /// Conservative sphere test against the camera frustum, for rejecting whole lights.
+        bool lightInView(const glm::vec3 &centre, float radius) const;
 
         DrawContext &drawContext;
         GPUSceneData &sceneData;
@@ -76,7 +91,8 @@ namespace rgraph
         MaterialPipeline depthPipeline{};
 
         ShadowDataGPU shadowData{};
-        std::vector<Caster> casters;      // selected this frame, most important first
+        std::vector<Caster> casters;         // selected this frame, most important first
+        std::vector<NearbyObject> nearby;    // scratch, kept as a member so it stops reallocating
         std::vector<int> shadowIndexByLight; // -1 when the light has no tile
     };
 } // namespace rgraph
