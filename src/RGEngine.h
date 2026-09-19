@@ -51,6 +51,9 @@ class RGEngine : public VulkanEngine
     // tonemapped, gamma-encoded, anti-aliased result; this is what reaches the swapchain
     AllocatedImage postImage;
 
+    // tonemapped LDR, the input FXAA reads; 8-bit halves its read bandwidth
+    AllocatedImage ldrImage;
+
     // half-res ping-pong targets for the bloom blur chain
     AllocatedImage bloomA;
     AllocatedImage bloomB;

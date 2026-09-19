@@ -8,58 +8,65 @@ namespace rgraph
     struct PostSettings
     {
         bool fxaa = true;
-        float exposure = 1.0f;
+        float exposureEV = 0.0f; // stops
 
-        float bloomIntensity = 0.6f;
-        float bloomThreshold = 2.0f; // HDR luminance; tuned against emissive vs sunlit surfaces
-        float bloomRadius = 1.0f;
+        float bloomIntensity = 0.5f;
+        float bloomThreshold = 1.5f; // HDR luminance above which light starts to bleed
 
-        // set while a debug view is active: skip exposure, tonemap, gamma and bloom
+        // set while a debug view is active: skip tonemap, gamma and bloom
         bool passthrough = false;
     };
 
     /**
-     * @brief Resolves the linear HDR draw image to a tonemapped, gamma-encoded, anti-aliased image.
+     * @brief Resolves the linear HDR draw image to a tonemapped, anti-aliased image.
      *
-     * Shading passes now emit linear HDR so additive transparency blends correctly; tonemapping and
-     * gamma live here, at the end, applied exactly once.
+     * Tonemapping and FXAA are separate passes on purpose: folding them together meant FXAA ran the
+     * ACES curve and a pow for every one of its ~13 taps.
      */
     class PostProcessFeature : public IFeature
     {
       public:
-        PostProcessFeature(VkDevice device, DeletionQueue &delQueue, AllocatedImage drawImage, AllocatedImage postImage, AllocatedImage bloomA,
-                           AllocatedImage bloomB);
+        PostProcessFeature(VkDevice device, DeletionQueue &delQueue, AllocatedImage drawImage, AllocatedImage postImage, AllocatedImage ldrImage,
+                           AllocatedImage bloomA, AllocatedImage bloomB);
 
         void Register(Rendergraph *builder) override;
 
         PostSettings settings;
 
       private:
-        void run(PassExecution &passExec);
-        void runBloom(PassExecution &passExec, VkPipeline target, VkDescriptorSet set, glm::vec4 params);
-
         struct PushConstants
         {
             glm::vec4 params;
         };
 
-        VkPipeline pipeline = VK_NULL_HANDLE;
-        VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-        VkDescriptorSetLayout postLayout = VK_NULL_HANDLE; // hdr + out + bloom
-        VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+        void dispatch(PassExecution &passExec, VkPipeline pipeline, VkPipelineLayout layout, VkDescriptorSet set, glm::vec4 params,
+                      VkExtent3D extent);
 
-        // extract and blur share one shape: sampled source -> storage destination
+        void runBloom(PassExecution &passExec, VkPipeline target, VkDescriptorSet set, glm::vec4 params);
+        void runTonemap(PassExecution &passExec);
+        void runFxaa(PassExecution &passExec);
+
+        // extract, blur and FXAA share one shape: sampled source -> storage destination
         VkDescriptorSetLayout blitLayout = VK_NULL_HANDLE;
+        VkPipelineLayout blitPipelineLayout = VK_NULL_HANDLE;
         VkPipeline extractPipeline = VK_NULL_HANDLE;
         VkPipeline blurPipeline = VK_NULL_HANDLE;
-        VkPipelineLayout blitPipelineLayout = VK_NULL_HANDLE;
+        VkPipeline fxaaPipeline = VK_NULL_HANDLE;
+
+        VkDescriptorSetLayout tonemapLayout = VK_NULL_HANDLE;
+        VkPipelineLayout tonemapPipelineLayout = VK_NULL_HANDLE;
+        VkPipeline tonemapPipeline = VK_NULL_HANDLE;
 
         VkDescriptorSet setExtract = VK_NULL_HANDLE; // drawImage -> A
         VkDescriptorSet setAB = VK_NULL_HANDLE;      // A -> B
         VkDescriptorSet setBA = VK_NULL_HANDLE;      // B -> A
+        VkDescriptorSet setTonemap = VK_NULL_HANDLE;
+        VkDescriptorSet setFxaa = VK_NULL_HANDLE;
 
         VkSampler sampler = VK_NULL_HANDLE;
+        VkExtent3D fullExtent{};
         VkExtent3D bloomExtent{};
+
         DescriptorAllocatorGrowable descriptorAllocator;
     };
 } // namespace rgraph

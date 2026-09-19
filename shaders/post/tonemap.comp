@@ -1,0 +1,42 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+#include "../PBR_helpers.glsl"
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D hdrImage;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D ldrImage;
+layout(set = 0, binding = 2) uniform sampler2D bloomImage;
+
+layout(push_constant) uniform PostPush
+{
+    vec4 params; // x = exposure (stops), y = unused, z = passthrough, w = bloom intensity
+}
+pc;
+
+void main()
+{
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(ldrImage);
+    if (texel.x >= size.x || texel.y >= size.y)
+    {
+        return;
+    }
+
+    vec2 uv = (vec2(texel) + 0.5) / vec2(size);
+    vec3 hdr = textureLod(hdrImage, uv, 0.0).rgb;
+
+    // debug views carry 0-1 data that must not be tonemapped or it becomes unreadable
+    if (pc.params.z > 0.5)
+    {
+        imageStore(ldrImage, texel, vec4(hdr, 1.0));
+        return;
+    }
+
+    // Bloom is added in linear HDR, before the tonemapper. Adding it afterwards would double-clip
+    // the halo and wash the colour out of it.
+    hdr += textureLod(bloomImage, uv, 0.0).rgb * pc.params.w;
+
+    imageStore(ldrImage, texel, vec4(pow(ACESFilm(hdr * exp2(pc.params.x)), vec3(1.0 / 2.2)), 1.0));
+}

@@ -1,0 +1,75 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D ldrImage;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D outImage;
+
+layout(push_constant) uniform PostPush
+{
+    vec4 params; // y = FXAA enabled
+}
+pc;
+
+float luma(vec3 c)
+{
+    return dot(c, vec3(0.299, 0.587, 0.114));
+}
+
+/**
+ * Operates on an already tonemapped, gamma-encoded image.
+ *
+ * Previously this ran the tonemapper inside every tap (~13 ACES + pow evaluations per pixel), which
+ * was the bulk of the post-process cost. Reading an LDR texture makes each tap a plain fetch.
+ */
+void main()
+{
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(outImage);
+    if (texel.x >= size.x || texel.y >= size.y)
+    {
+        return;
+    }
+
+    vec2 texelSize = 1.0 / vec2(size);
+    vec2 uv = (vec2(texel) + 0.5) * texelSize;
+
+    vec3 rgbM = textureLod(ldrImage, uv, 0.0).rgb;
+
+    if (pc.params.y < 0.5)
+    {
+        imageStore(outImage, texel, vec4(rgbM, 1.0));
+        return;
+    }
+
+    float lumaM = luma(rgbM);
+    float lumaNW = luma(textureLod(ldrImage, uv + vec2(-1.0, -1.0) * texelSize, 0.0).rgb);
+    float lumaNE = luma(textureLod(ldrImage, uv + vec2(1.0, -1.0) * texelSize, 0.0).rgb);
+    float lumaSW = luma(textureLod(ldrImage, uv + vec2(-1.0, 1.0) * texelSize, 0.0).rgb);
+    float lumaSE = luma(textureLod(ldrImage, uv + vec2(1.0, 1.0) * texelSize, 0.0).rgb);
+
+    float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
+    float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
+
+    // flat enough to leave alone: skips the blur on smooth gradients
+    if (lumaMax - lumaMin < max(0.0312, lumaMax * 0.125))
+    {
+        imageStore(outImage, texel, vec4(rgbM, 1.0));
+        return;
+    }
+
+    vec2 dir = vec2(-((lumaNW + lumaNE) - (lumaSW + lumaSE)), ((lumaNW + lumaSW) - (lumaNE + lumaSE)));
+
+    float dirReduce = max((lumaNW + lumaNE + lumaSW + lumaSE) * 0.03125, 0.0078125);
+    float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
+    dir = clamp(dir * rcpDirMin, vec2(-8.0), vec2(8.0)) * texelSize;
+
+    vec3 rgbA = 0.5 * (textureLod(ldrImage, uv + dir * (1.0 / 3.0 - 0.5), 0.0).rgb +
+                       textureLod(ldrImage, uv + dir * (2.0 / 3.0 - 0.5), 0.0).rgb);
+    vec3 rgbB = rgbA * 0.5 + 0.25 * (textureLod(ldrImage, uv + dir * -0.5, 0.0).rgb +
+                                     textureLod(ldrImage, uv + dir * 0.5, 0.0).rgb);
+
+    // rgbB reaches further; fall back to the narrower tap if it overshot the local range
+    float lumaB = luma(rgbB);
+    imageStore(outImage, texel, vec4((lumaB < lumaMin || lumaB > lumaMax) ? rgbA : rgbB, 1.0));
+}

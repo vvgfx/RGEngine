@@ -111,9 +111,10 @@ namespace rgraph
         DescriptorAllocatorGrowable *frameDescriptor;
 
         // performance variables.
-        float dispatchCalls; // compute
-        float drawCalls;     // graphics
-        float triangles;     // graphics
+        // default-initialised: a pass that reports only some of these would otherwise show garbage
+        float dispatchCalls = 0.f; // compute
+        float drawCalls = 0.f;     // graphics
+        float triangles = 0.f;     // graphics
     };
 
     struct TransitionData

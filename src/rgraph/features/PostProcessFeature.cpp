@@ -2,7 +2,6 @@
 #include "fmt/base.h"
 #include "vk_pipelines.h"
 #include <cmath>
-#include <string_view>
 
 namespace
 {
@@ -24,19 +23,32 @@ namespace
         vkDestroyShaderModule(device, module, nullptr);
         return pipeline;
     }
+
+    VkPipelineLayout createLayout(VkDevice device, VkDescriptorSetLayout setLayout, uint32_t pushSize)
+    {
+        VkPushConstantRange range{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = pushSize};
+        VkPipelineLayoutCreateInfo info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+                                        .setLayoutCount = 1,
+                                        .pSetLayouts = &setLayout,
+                                        .pushConstantRangeCount = 1,
+                                        .pPushConstantRanges = &range};
+        VkPipelineLayout layout;
+        VK_CHECK(vkCreatePipelineLayout(device, &info, nullptr, &layout));
+        return layout;
+    }
 } // namespace
 
 rgraph::PostProcessFeature::PostProcessFeature(VkDevice device, DeletionQueue &delQueue, AllocatedImage drawImage, AllocatedImage postImage,
-                                               AllocatedImage bloomA, AllocatedImage bloomB)
+                                               AllocatedImage ldrImage, AllocatedImage bloomA, AllocatedImage bloomB)
 {
+    fullExtent = drawImage.imageExtent;
     bloomExtent = bloomA.imageExtent;
 
-    std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2},
-                                                                     {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}};
+    std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3},
+                                                                     {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2}};
     descriptorAllocator.init(device, 10, sizes);
 
-    // Extract and both blur directions share one shape, so they share one layout and one pipeline
-    // layout; only the bound set and the push constants differ.
+    // Extract, blur and FXAA all share one shape, so they share a layout and a pipeline layout.
     {
         DescriptorLayoutBuilder builder;
         builder.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
@@ -45,13 +57,13 @@ rgraph::PostProcessFeature::PostProcessFeature(VkDevice device, DeletionQueue &d
     }
     {
         DescriptorLayoutBuilder builder;
-        builder.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // linear HDR source
-        builder.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);          // resolved output
+        builder.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // linear HDR
+        builder.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);          // LDR output
         builder.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // bloom
-        postLayout = builder.build(device, VK_SHADER_STAGE_COMPUTE_BIT);
+        tonemapLayout = builder.build(device, VK_SHADER_STAGE_COMPUTE_BIT);
     }
 
-    // FXAA and the blur both read between texels, so this must filter linearly
+    // FXAA and the bloom blur both read between texels, so this must filter linearly
     VkSamplerCreateInfo samplerInfo{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
                                     .magFilter = VK_FILTER_LINEAR,
                                     .minFilter = VK_FILTER_LINEAR,
@@ -70,58 +82,48 @@ rgraph::PostProcessFeature::PostProcessFeature(VkDevice device, DeletionQueue &d
         return set;
     };
 
-    // All images are persistent, so these sets are written once.
+    // Every image here is persistent, so these sets are written once.
     setExtract = writeBlit(drawImage, bloomA);
     setAB = writeBlit(bloomA, bloomB);
     setBA = writeBlit(bloomB, bloomA);
+    setFxaa = writeBlit(ldrImage, postImage);
 
-    descriptorSet = descriptorAllocator.allocate(device, postLayout);
+    setTonemap = descriptorAllocator.allocate(device, tonemapLayout);
     {
         DescriptorWriter writer;
         writer.write_image(0, drawImage.imageView, sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-        writer.write_image(1, postImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        writer.write_image(1, ldrImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
         writer.write_image(2, bloomA.imageView, sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-        writer.update_set(device, descriptorSet);
+        writer.update_set(device, setTonemap);
     }
 
-    VkPushConstantRange range{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(PushConstants)};
+    blitPipelineLayout = createLayout(device, blitLayout, sizeof(PushConstants));
+    tonemapPipelineLayout = createLayout(device, tonemapLayout, sizeof(PushConstants));
 
-    VkPipelineLayoutCreateInfo postInfo{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-                                        .setLayoutCount = 1,
-                                        .pSetLayouts = &postLayout,
-                                        .pushConstantRangeCount = 1,
-                                        .pPushConstantRanges = &range};
-    VK_CHECK(vkCreatePipelineLayout(device, &postInfo, nullptr, &pipelineLayout));
-
-    VkPipelineLayoutCreateInfo blitInfo{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-                                        .setLayoutCount = 1,
-                                        .pSetLayouts = &blitLayout,
-                                        .pushConstantRangeCount = 1,
-                                        .pPushConstantRanges = &range};
-    VK_CHECK(vkCreatePipelineLayout(device, &blitInfo, nullptr, &blitPipelineLayout));
-
-    pipeline = createComputePipeline(device, "../shaders/post/post.comp.spv", pipelineLayout);
     extractPipeline = createComputePipeline(device, "../shaders/post/bloom_extract.comp.spv", blitPipelineLayout);
     blurPipeline = createComputePipeline(device, "../shaders/post/bloom_blur.comp.spv", blitPipelineLayout);
+    fxaaPipeline = createComputePipeline(device, "../shaders/post/fxaa.comp.spv", blitPipelineLayout);
+    tonemapPipeline = createComputePipeline(device, "../shaders/post/tonemap.comp.spv", tonemapPipelineLayout);
 
     delQueue.push_function(
         [device, this]()
         {
-            vkDestroyPipeline(device, pipeline, nullptr);
-            vkDestroyPipeline(device, extractPipeline, nullptr);
-            vkDestroyPipeline(device, blurPipeline, nullptr);
-            vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+            for (VkPipeline p : {extractPipeline, blurPipeline, fxaaPipeline, tonemapPipeline})
+            {
+                vkDestroyPipeline(device, p, nullptr);
+            }
             vkDestroyPipelineLayout(device, blitPipelineLayout, nullptr);
+            vkDestroyPipelineLayout(device, tonemapPipelineLayout, nullptr);
+            vkDestroyDescriptorSetLayout(device, blitLayout, nullptr);
+            vkDestroyDescriptorSetLayout(device, tonemapLayout, nullptr);
             vkDestroySampler(device, sampler, nullptr);
             descriptorAllocator.destroy_pools(device);
-            vkDestroyDescriptorSetLayout(device, postLayout, nullptr);
-            vkDestroyDescriptorSetLayout(device, blitLayout, nullptr);
         });
 }
 
 void rgraph::PostProcessFeature::Register(rgraph::Rendergraph *builder)
 {
-    if (pipeline == VK_NULL_HANDLE)
+    if (tonemapPipeline == VK_NULL_HANDLE || fxaaPipeline == VK_NULL_HANDLE)
     {
         return;
     }
@@ -137,44 +139,29 @@ void rgraph::PostProcessFeature::Register(rgraph::Rendergraph *builder)
                 pass.ReadsImage("drawImage", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 pass.WritesImage("bloomA");
             },
-            [&](PassExecution &passExec)
-            { runBloom(passExec, extractPipeline, setExtract, glm::vec4(settings.bloomThreshold, settings.bloomThreshold * 0.5f, 0.0f, 0.0f)); });
+            [&](PassExecution &passExec) { runBloom(passExec, extractPipeline, setExtract, glm::vec4(settings.bloomThreshold, 0, 0, 0)); });
 
-        // Two horizontal/vertical pairs with increasing radius: a much smoother falloff than one
-        // pass, for four extra half-res dispatches.
-        struct BlurStep
-        {
-            const char *name;
-            const char *src;
-            const char *dst;
-            glm::vec2 dir;
-            float scale;
-        };
-        static const BlurStep steps[] = {
-            {"bloom-blur-h", "bloomA", "bloomB", {1, 0}, 1.0f},
-            {"bloom-blur-v", "bloomB", "bloomA", {0, 1}, 1.0f},
-            {"bloom-blur-h2", "bloomA", "bloomB", {1, 0}, 2.0f},
-            {"bloom-blur-v2", "bloomB", "bloomA", {0, 1}, 2.0f},
-        };
+        builder->AddComputePass(
+            "bloom-blur-h",
+            [](Pass &pass)
+            {
+                pass.ReadsImage("bloomA", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                pass.WritesImage("bloomB");
+            },
+            [&](PassExecution &passExec) { runBloom(passExec, blurPipeline, setAB, glm::vec4(1, 0, 1, 0)); });
 
-        for (const BlurStep &step : steps)
-        {
-            VkDescriptorSet set = step.dst == std::string_view("bloomB") ? setAB : setBA;
-            glm::vec4 params(step.dir.x, step.dir.y, settings.bloomRadius * step.scale, 0.0f);
-
-            builder->AddComputePass(
-                step.name,
-                [&step](Pass &pass)
-                {
-                    pass.ReadsImage(step.src, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                    pass.WritesImage(step.dst);
-                },
-                [this, set, params](PassExecution &passExec) { runBloom(passExec, blurPipeline, set, params); });
-        }
+        builder->AddComputePass(
+            "bloom-blur-v",
+            [](Pass &pass)
+            {
+                pass.ReadsImage("bloomB", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                pass.WritesImage("bloomA");
+            },
+            [&](PassExecution &passExec) { runBloom(passExec, blurPipeline, setBA, glm::vec4(0, 1, 1, 0)); });
     }
 
     builder->AddComputePass(
-        "post-process",
+        "tonemap",
         [bloomOn](Pass &pass)
         {
             pass.ReadsImage("drawImage", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -182,9 +169,34 @@ void rgraph::PostProcessFeature::Register(rgraph::Rendergraph *builder)
             {
                 pass.ReadsImage("bloomA", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             }
+            pass.WritesImage("ldrImage");
+        },
+        [&](PassExecution &passExec) { runTonemap(passExec); });
+
+    builder->AddComputePass(
+        "fxaa",
+        [](Pass &pass)
+        {
+            pass.ReadsImage("ldrImage", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             pass.WritesImage("postImage");
         },
-        [&](PassExecution &passExec) { run(passExec); });
+        [&](PassExecution &passExec) { runFxaa(passExec); });
+}
+
+void rgraph::PostProcessFeature::dispatch(PassExecution &passExec, VkPipeline pipeline, VkPipelineLayout layout, VkDescriptorSet set,
+                                          glm::vec4 params, VkExtent3D extent)
+{
+    PushConstants push{params};
+
+    vkCmdBindPipeline(passExec.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+    vkCmdBindDescriptorSets(passExec.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, layout, 0, 1, &set, 0, nullptr);
+    vkCmdPushConstants(passExec.cmd, layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &push);
+
+    const uint32_t groupsX = uint32_t(std::ceil(extent.width / 16.0));
+    const uint32_t groupsY = uint32_t(std::ceil(extent.height / 16.0));
+    vkCmdDispatch(passExec.cmd, groupsX, groupsY, 1);
+
+    passExec.dispatchCalls = float(groupsX * groupsY);
 }
 
 void rgraph::PostProcessFeature::runBloom(PassExecution &passExec, VkPipeline target, VkDescriptorSet set, glm::vec4 params)
@@ -195,33 +207,19 @@ void rgraph::PostProcessFeature::runBloom(PassExecution &passExec, VkPipeline ta
         return;
     }
 
-    PushConstants push{params};
-
-    vkCmdBindPipeline(passExec.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, target);
-    vkCmdBindDescriptorSets(passExec.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, blitPipelineLayout, 0, 1, &set, 0, nullptr);
-    vkCmdPushConstants(passExec.cmd, blitPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &push);
-
-    const uint32_t groupsX = uint32_t(std::ceil(bloomExtent.width / 16.0));
-    const uint32_t groupsY = uint32_t(std::ceil(bloomExtent.height / 16.0));
-    vkCmdDispatch(passExec.cmd, groupsX, groupsY, 1);
-
-    passExec.dispatchCalls = float(groupsX * groupsY);
+    dispatch(passExec, target, blitPipelineLayout, set, params, bloomExtent);
 }
 
-void rgraph::PostProcessFeature::run(PassExecution &passExec)
+void rgraph::PostProcessFeature::runTonemap(PassExecution &passExec)
 {
     const float bloom = settings.passthrough ? 0.0f : settings.bloomIntensity;
 
-    PushConstants push{glm::vec4(settings.exposure, settings.fxaa && !settings.passthrough ? 1.0f : 0.0f,
-                                 settings.passthrough ? 1.0f : 0.0f, bloom)};
+    dispatch(passExec, tonemapPipeline, tonemapPipelineLayout, setTonemap,
+             glm::vec4(settings.exposureEV, 0.0f, settings.passthrough ? 1.0f : 0.0f, bloom), fullExtent);
+}
 
-    vkCmdBindPipeline(passExec.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-    vkCmdBindDescriptorSets(passExec.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-    vkCmdPushConstants(passExec.cmd, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &push);
-
-    const uint32_t groupsX = uint32_t(std::ceil(passExec._drawExtent.width / 16.0));
-    const uint32_t groupsY = uint32_t(std::ceil(passExec._drawExtent.height / 16.0));
-    vkCmdDispatch(passExec.cmd, groupsX, groupsY, 1);
-
-    passExec.dispatchCalls = float(groupsX * groupsY);
+void rgraph::PostProcessFeature::runFxaa(PassExecution &passExec)
+{
+    dispatch(passExec, fxaaPipeline, blitPipelineLayout, setFxaa,
+             glm::vec4(0.0f, settings.fxaa && !settings.passthrough ? 1.0f : 0.0f, 0.0f, 0.0f), fullExtent);
 }

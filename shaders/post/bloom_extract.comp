@@ -7,12 +7,10 @@ layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D outImage;
 
 layout(push_constant) uniform BloomPush
 {
-    vec4 params; // x = threshold, y = soft knee
+    vec4 params; // x = threshold
 }
 pc;
 
-/// Isolates the part of the image bright enough to bleed, with a soft shoulder so surfaces drifting
-/// past the threshold fade in instead of popping.
 void main()
 {
     ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
@@ -26,12 +24,7 @@ void main()
     vec2 uv = (vec2(texel) + 0.5) / vec2(size);
     vec3 color = textureLod(hdrImage, uv, 0.0).rgb;
 
-    float luma = dot(color, vec3(0.299, 0.587, 0.114));
-    float threshold = pc.params.x;
-    float knee = max(pc.params.y, 1e-4);
-
-    float soft = clamp((luma - threshold + knee) / (2.0 * knee), 0.0, 1.0);
-    float weight = max(soft * soft * (luma > threshold - knee ? 1.0 : 0.0), luma > threshold ? 1.0 : 0.0);
-
-    imageStore(outImage, texel, vec4(color * weight, 1.0));
+    // Keep only the excess over the threshold. Passing the *whole* colour through meant an emissive
+    // bulb at 40 contributed 40 to its neighbours, so intensity had to be ~0.03 to look sane.
+    imageStore(outImage, texel, vec4(max(color - pc.params.x, 0.0), 1.0));
 }

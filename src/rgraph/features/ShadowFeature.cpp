@@ -274,6 +274,7 @@ void rgraph::ShadowFeature::renderPass(PassExecution &passExec)
     vkCmdBindPipeline(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, depthPipeline.pipeline);
 
     uint32_t draws = 0;
+    uint32_t tris = 0;
 
     for (uint32_t c = 0; c < CASCADE_COUNT; c++)
     {
@@ -313,8 +314,10 @@ void rgraph::ShadowFeature::renderPass(PassExecution &passExec)
             vkCmdBindIndexBuffer(passExec.cmd, obj.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
             vkCmdDrawIndexed(passExec.cmd, obj.indexCount, 1, obj.firstIndex, 0, 0);
             draws++;
+            tris += obj.indexCount / 3;
         }
     }
 
     passExec.drawCalls = float(draws);
+    passExec.triangles = float(tris);
 }

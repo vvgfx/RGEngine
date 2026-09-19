@@ -11,6 +11,7 @@
 #include "vk_types.h"
 #include <RGEngine.h>
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <vulkan/vulkan_core.h>
 
@@ -64,11 +65,16 @@ void RGEngine::init()
             GPUResourceAllocator::Instance().destroy_image(bloomB);
         });
 
-    postFeature = std::make_shared<rgraph::PostProcessFeature>(_device, _mainDeletionQueue, _drawImage, postImage, bloomA, bloomB);
+    ldrImage = GPUResourceAllocator::Instance().create_image(_drawImage.imageExtent, VK_FORMAT_R8G8B8A8_UNORM,
+                                                             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    _mainDeletionQueue.push_function([this]() { GPUResourceAllocator::Instance().destroy_image(ldrImage); });
+
+    postFeature = std::make_shared<rgraph::PostProcessFeature>(_device, _mainDeletionQueue, _drawImage, postImage, ldrImage, bloomA, bloomB);
 
     rgraphInstance.AddTrackedImage("drawImage", VK_IMAGE_LAYOUT_UNDEFINED, _drawImage);
     rgraphInstance.AddTrackedImage("depthImage", VK_IMAGE_LAYOUT_UNDEFINED, _depthImage);
     rgraphInstance.AddTrackedImage("postImage", VK_IMAGE_LAYOUT_UNDEFINED, postImage);
+    rgraphInstance.AddTrackedImage("ldrImage", VK_IMAGE_LAYOUT_UNDEFINED, ldrImage);
     rgraphInstance.AddTrackedImage("bloomA", VK_IMAGE_LAYOUT_UNDEFINED, bloomA);
     rgraphInstance.AddTrackedImage("bloomB", VK_IMAGE_LAYOUT_UNDEFINED, bloomB);
 
@@ -415,11 +421,12 @@ void RGEngine::imGuiAddParams()
 
     if (ImGui::CollapsingHeader("Post", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        ImGui::Checkbox("FXAA", &postFeature->settings.fxaa);
-        ImGui::SliderFloat("Exposure", &postFeature->settings.exposure, 0.05f, 8.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
-        ImGui::SliderFloat("Bloom", &postFeature->settings.bloomIntensity, 0.0f, 2.0f);
-        ImGui::SliderFloat("Bloom threshold", &postFeature->settings.bloomThreshold, 0.0f, 10.0f);
-        ImGui::SliderFloat("Bloom radius", &postFeature->settings.bloomRadius, 0.25f, 4.0f);
+        rgraph::PostSettings &p = postFeature->settings;
+
+        ImGui::Checkbox("FXAA", &p.fxaa);
+        ImGui::SliderFloat("Exposure (EV)", &p.exposureEV, -6.0f, 6.0f, "%+.2f");
+        ImGui::SliderFloat("Bloom", &p.bloomIntensity, 0.0f, 2.0f);
+        ImGui::SliderFloat("Bloom threshold", &p.bloomThreshold, 0.0f, 8.0f);
     }
 
     if (ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen))
