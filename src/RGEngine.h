@@ -2,6 +2,7 @@
 
 #include "rgraph/Rendergraph.h"
 #include "rgraph/features/ComputeBackgroundFeature.h"
+#include "rgraph/features/SSRFeature.h"
 #include "rgraph/features/ShadowFeature.h"
 #include "rgraph/features/PostProcessFeature.h"
 #include "rgraph/features/DeferredRenderingFeature.h"
@@ -42,6 +43,7 @@ class RGEngine : public VulkanEngine
 
     // mirrored into GPUSceneData::ssaoParams.x each frame; int so ImGui can edit it
     int ssaoSampleCount = 16;
+    std::shared_ptr<rgraph::SSRFeature> ssrFeature;
     std::shared_ptr<rgraph::PostProcessFeature> postFeature;
 
     // AllocatedImages for MSAA. TODO: Move these out later.
@@ -50,6 +52,9 @@ class RGEngine : public VulkanEngine
 
     // tonemapped, gamma-encoded, anti-aliased result; this is what reaches the swapchain
     AllocatedImage postImage;
+
+    // lit colour plus reflections; everything downstream of SSR reads this rather than drawImage
+    AllocatedImage sceneImage;
 
     // tonemapped LDR, the input FXAA reads; 8-bit halves its read bandwidth
     AllocatedImage ldrImage;

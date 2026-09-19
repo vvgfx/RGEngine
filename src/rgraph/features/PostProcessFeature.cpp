@@ -2,6 +2,7 @@
 #include "fmt/base.h"
 #include "vk_pipelines.h"
 #include <cmath>
+#include <utility>
 
 namespace
 {
@@ -38,10 +39,11 @@ namespace
     }
 } // namespace
 
-rgraph::PostProcessFeature::PostProcessFeature(VkDevice device, DeletionQueue &delQueue, AllocatedImage drawImage, AllocatedImage postImage,
-                                               AllocatedImage ldrImage, AllocatedImage bloomA, AllocatedImage bloomB)
+rgraph::PostProcessFeature::PostProcessFeature(VkDevice device, DeletionQueue &delQueue, std::string hdrName, AllocatedImage hdrImage,
+                                               AllocatedImage postImage, AllocatedImage ldrImage, AllocatedImage bloomA, AllocatedImage bloomB)
+    : hdrName(std::move(hdrName))
 {
-    fullExtent = drawImage.imageExtent;
+    fullExtent = hdrImage.imageExtent;
     bloomExtent = bloomA.imageExtent;
 
     std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3},
@@ -83,7 +85,7 @@ rgraph::PostProcessFeature::PostProcessFeature(VkDevice device, DeletionQueue &d
     };
 
     // Every image here is persistent, so these sets are written once.
-    setExtract = writeBlit(drawImage, bloomA);
+    setExtract = writeBlit(hdrImage, bloomA);
     setAB = writeBlit(bloomA, bloomB);
     setBA = writeBlit(bloomB, bloomA);
     setFxaa = writeBlit(ldrImage, postImage);
@@ -91,7 +93,7 @@ rgraph::PostProcessFeature::PostProcessFeature(VkDevice device, DeletionQueue &d
     setTonemap = descriptorAllocator.allocate(device, tonemapLayout);
     {
         DescriptorWriter writer;
-        writer.write_image(0, drawImage.imageView, sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        writer.write_image(0, hdrImage.imageView, sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
         writer.write_image(1, ldrImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
         writer.write_image(2, bloomA.imageView, sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
         writer.update_set(device, setTonemap);
@@ -134,9 +136,9 @@ void rgraph::PostProcessFeature::Register(rgraph::Rendergraph *builder)
     {
         builder->AddComputePass(
             "bloom-extract",
-            [](Pass &pass)
+            [this](Pass &pass)
             {
-                pass.ReadsImage("drawImage", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                pass.ReadsImage(hdrName, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 pass.WritesImage("bloomA");
             },
             [&](PassExecution &passExec) { runBloom(passExec, extractPipeline, setExtract, glm::vec4(settings.bloomThreshold, 0, 0, 0)); });
@@ -162,9 +164,9 @@ void rgraph::PostProcessFeature::Register(rgraph::Rendergraph *builder)
 
     builder->AddComputePass(
         "tonemap",
-        [bloomOn](Pass &pass)
+        [this, bloomOn](Pass &pass)
         {
-            pass.ReadsImage("drawImage", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            pass.ReadsImage(hdrName, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             if (bloomOn)
             {
                 pass.ReadsImage("bloomA", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);

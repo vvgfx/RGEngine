@@ -2,6 +2,7 @@
 #include "../IFeature.h"
 #include "vk_engine.h"
 #include "vk_types.h"
+#include <string>
 
 namespace rgraph
 {
@@ -26,8 +27,10 @@ namespace rgraph
     class PostProcessFeature : public IFeature
     {
       public:
-        PostProcessFeature(VkDevice device, DeletionQueue &delQueue, AllocatedImage drawImage, AllocatedImage postImage, AllocatedImage ldrImage,
-                           AllocatedImage bloomA, AllocatedImage bloomB);
+        /// hdrName must be the rendergraph name of hdrImage: the pass declarations drive layout
+        /// transitions, so naming the wrong image would transition something the shaders never read.
+        PostProcessFeature(VkDevice device, DeletionQueue &delQueue, std::string hdrName, AllocatedImage hdrImage, AllocatedImage postImage,
+                           AllocatedImage ldrImage, AllocatedImage bloomA, AllocatedImage bloomB);
 
         void Register(Rendergraph *builder) override;
 
@@ -64,6 +67,7 @@ namespace rgraph
         VkDescriptorSet setFxaa = VK_NULL_HANDLE;
 
         VkSampler sampler = VK_NULL_HANDLE;
+        std::string hdrName;
         VkExtent3D fullExtent{};
         VkExtent3D bloomExtent{};
 

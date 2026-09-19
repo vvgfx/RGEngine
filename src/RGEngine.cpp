@@ -65,15 +65,23 @@ void RGEngine::init()
             GPUResourceAllocator::Instance().destroy_image(bloomB);
         });
 
+    sceneImage = GPUResourceAllocator::Instance().create_image(_drawImage.imageExtent, _drawImage.imageFormat,
+                                                               VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    _mainDeletionQueue.push_function([this]() { GPUResourceAllocator::Instance().destroy_image(sceneImage); });
+
+    ssrFeature = std::make_shared<rgraph::SSRFeature>(_device, _mainDeletionQueue, sceneData);
+
     ldrImage = GPUResourceAllocator::Instance().create_image(_drawImage.imageExtent, VK_FORMAT_R8G8B8A8_UNORM,
                                                              VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
     _mainDeletionQueue.push_function([this]() { GPUResourceAllocator::Instance().destroy_image(ldrImage); });
 
-    postFeature = std::make_shared<rgraph::PostProcessFeature>(_device, _mainDeletionQueue, _drawImage, postImage, ldrImage, bloomA, bloomB);
+    postFeature = std::make_shared<rgraph::PostProcessFeature>(_device, _mainDeletionQueue, "sceneImage", sceneImage, postImage, ldrImage, bloomA,
+                                                               bloomB);
 
     rgraphInstance.AddTrackedImage("drawImage", VK_IMAGE_LAYOUT_UNDEFINED, _drawImage);
     rgraphInstance.AddTrackedImage("depthImage", VK_IMAGE_LAYOUT_UNDEFINED, _depthImage);
     rgraphInstance.AddTrackedImage("postImage", VK_IMAGE_LAYOUT_UNDEFINED, postImage);
+    rgraphInstance.AddTrackedImage("sceneImage", VK_IMAGE_LAYOUT_UNDEFINED, sceneImage);
     rgraphInstance.AddTrackedImage("ldrImage", VK_IMAGE_LAYOUT_UNDEFINED, ldrImage);
     rgraphInstance.AddTrackedImage("bloomA", VK_IMAGE_LAYOUT_UNDEFINED, bloomA);
     rgraphInstance.AddTrackedImage("bloomB", VK_IMAGE_LAYOUT_UNDEFINED, bloomB);
@@ -84,6 +92,9 @@ void RGEngine::init()
     // registration order is execution order: cascades must be rendered before the composite reads them.
     rgraphInstance.AddFeature(shadowFeature);
     rgraphInstance.AddFeature(deferredFeature);
+
+    // after the deferred passes: reflections need the lit image to reflect
+    rgraphInstance.AddFeature(ssrFeature);
 
     // last: everything above writes linear HDR, this resolves it to displayable LDR
     rgraphInstance.AddFeature(postFeature);
@@ -417,6 +428,18 @@ void RGEngine::imGuiAddParams()
 
         // debug views bypass the tonemapper (and FXAA) so their values stay readable
         postFeature->settings.passthrough = mode != 0;
+    }
+
+    if (ImGui::CollapsingHeader("Reflections", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        rgraph::SSRSettings &r = ssrFeature->settings;
+        ImGui::Checkbox("SSR", &r.enabled);
+        ImGui::SliderFloat("Max roughness", &r.maxRoughness, 0.0f, 1.0f);
+        ImGui::SliderInt("Steps", &r.steps, 4, 64);
+        ImGui::SliderFloat("Thickness", &r.thickness, 0.01f, 2.0f);
+        ImGui::SliderFloat("Ray distance", &r.maxDistance, 1.0f, 100.0f);
+        ImGui::SliderFloat("SSR intensity", &r.intensity, 0.0f, 2.0f);
+        ImGui::Checkbox("Show reflection only", &r.showReflectionOnly);
     }
 
     if (ImGui::CollapsingHeader("Post", ImGuiTreeNodeFlags_DefaultOpen))
