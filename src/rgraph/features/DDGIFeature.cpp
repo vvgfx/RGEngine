@@ -89,6 +89,15 @@ void rgraph::DDGIFeature::createImages(VkDevice device, DeletionQueue &delQueue)
 {
     auto &alloc = GPUResourceAllocator::Instance();
 
+    // probeRayData is rays x probes, so the probe count is bounded by the 2D image limit.
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(engine->GetPhysicalDevice(), &props);
+    while (numProbes() > int(props.limits.maxImageDimension2D) && probeCounts.y > 1)
+    {
+        probeCounts.y--;
+        fmt::println("DDGI: probe count exceeded maxImageDimension2D, reducing Y to {}", probeCounts.y);
+    }
+
     const int tilesPerRow = probeCounts.x * probeCounts.y;
     const int tileRows = probeCounts.z;
 
@@ -150,7 +159,15 @@ void rgraph::DDGIFeature::createPipelines(VkDevice device, DeletionQueue &delQue
         builder.add_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // irradiance (sample)
         builder.add_binding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // distance (sample)
         builder.add_binding(6, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);         // lights
-        ddgiLayout = builder.build(device, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+        builder.add_binding(7, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR); // TLAS, for composite shadow rays
+
+        VkDescriptorBindingFlags bindingFlags[8] = {};
+        bindingFlags[7] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
+        VkDescriptorSetLayoutBindingFlagsCreateInfo flagsInfo{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+                                                              .bindingCount = 8,
+                                                              .pBindingFlags = bindingFlags};
+
+        ddgiLayout = builder.build(device, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &flagsInfo);
     }
 
     {
@@ -291,13 +308,15 @@ void rgraph::DDGIFeature::tracePass(PassExecution &passExec)
     volume->blend = glm::vec4(settings.hysteresis, settings.normalBias * volumeSpacing.x, settings.viewBias * volumeSpacing.x, maxRayDistance);
     volume->misc = glm::vec4(settings.depthSharpness, settings.irradianceGamma, float(frameIndex), active() ? 1.0f : 0.0f);
     volume->skyColor = glm::vec4(settings.skyColor, 1.0f);
+    volume->flags = glm::vec4(settings.sunShadows && accel.IsValid() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
 
     auto *lights = (LightBlockGPU *)lightBuffer.info.pMappedData;
-    lights->numLights = std::min<int>(int(drawContext.lights.size()), 25);
+    lights->numLights = std::min<int>(int(drawContext.lights.size()), MAX_LIGHTS);
     for (int i = 0; i < lights->numLights; i++)
     {
         const GPULightingData &src = drawContext.lights[i];
-        lights->lights[i] = LightGPU{src.transform, src.color, src.intensity, src.range, {}};
+        lights->lights[i] =
+            LightGPU{src.transform, src.color, src.intensity * drawContext.lightIntensityScale, src.range, src.type, {}};
     }
 
     // A fresh random rotation each frame is what lets 128 rays converge through hysteresis.
@@ -317,13 +336,19 @@ void rgraph::DDGIFeature::tracePass(PassExecution &passExec)
     writer.write_image(4, probeIrradiance.imageView, probeSampler, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.write_image(5, probeDistance.imageView, probeSampler, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.write_buffer(6, lightBuffer.buffer, sizeof(LightBlockGPU), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+
+    VkAccelerationStructureKHR tlasHandle = accel.GetTLAS();
+    if (accel.IsValid())
+    {
+        writer.write_accel(7, &tlasHandle);
+    }
+
     writer.update_set(passExec._device, frameSet);
 
     VkDescriptorSet sceneSet = passExec.frameDescriptor->allocate(passExec._device, sceneLayout);
-    VkAccelerationStructureKHR tlas = accel.GetTLAS();
 
     DescriptorWriter sceneWriter;
-    sceneWriter.write_accel(0, &tlas);
+    sceneWriter.write_accel(0, &tlasHandle);
     sceneWriter.write_buffer(1, accel.GetGeometryBuffer(), accel.GetGeometryBufferSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     sceneWriter.update_set(passExec._device, sceneSet);
 
@@ -403,8 +428,8 @@ void rgraph::DDGIFeature::debugProbePass(PassExecution &passExec)
     vkCmdBindPipeline(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debugPipeline);
     vkCmdBindDescriptorSets(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debugPipelineLayout, 0, 2, sets, 0, nullptr);
 
-    // a quarter of the probe spacing reads clearly without hiding the scene behind it
-    glm::vec4 params(glm::min(glm::min(volumeSpacing.x, volumeSpacing.y), volumeSpacing.z) * 0.25f, 0.0f, 0.0f, 0.0f);
+    const float minSpacing = glm::min(glm::min(volumeSpacing.x, volumeSpacing.y), volumeSpacing.z);
+    glm::vec4 params(minSpacing * settings.probeRadius, 0.0f, 0.0f, 0.0f);
     vkCmdPushConstants(passExec.cmd, debugPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::vec4), &params);
 
     VkViewport viewport{0.0f, 0.0f, float(passExec._drawExtent.width), float(passExec._drawExtent.height), 0.0f, 1.0f};

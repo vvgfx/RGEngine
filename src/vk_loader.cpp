@@ -1,4 +1,5 @@
 ﻿#include "GPUResourceAllocator.h"
+#include "dds_loader.h"
 #include "MaterialSystem.h"
 #include "fastgltf/types.hpp"
 #include "fmt/base.h"
@@ -7,6 +8,7 @@
 #include "vk_engine.h"
 #include "vk_types.h"
 #include <glm/gtx/quaternion.hpp>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <vk_loader.h>
@@ -19,7 +21,7 @@
 // forward declaration of global functions
 VkFilter extract_filter(fastgltf::Filter filter);
 VkSamplerMipmapMode extract_mipmap_mode(fastgltf::Filter filter);
-std::optional<AllocatedImage> load_image(fastgltf::Asset &asset, fastgltf::Image &image);
+std::optional<AllocatedImage> load_image(fastgltf::Asset &asset, fastgltf::Image &image, const std::filesystem::path &baseDir);
 
 std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath)
 {
@@ -31,7 +33,7 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
     std::shared_ptr<sgraph::Scene> scene = std::make_shared<sgraph::Scene>();
     sgraph::Scene &file = *scene.get();
 
-    fastgltf::Parser parser(fastgltf::Extensions::KHR_lights_punctual);
+    fastgltf::Parser parser(fastgltf::Extensions::KHR_lights_punctual | fastgltf::Extensions::KHR_materials_pbrSpecularGlossiness);
 
     constexpr auto gltfOptions =
         fastgltf::Options::DontRequireValidAssetMember | fastgltf::Options::AllowDouble | fastgltf::Options::LoadExternalBuffers;
@@ -135,7 +137,7 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
     // load all textures
     for (fastgltf::Image &image : gltf.images)
     {
-        std::optional<AllocatedImage> img = load_image(gltf, image);
+        std::optional<AllocatedImage> img = load_image(gltf, image, path.parent_path());
 
         if (img.has_value())
         {
@@ -190,22 +192,46 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
         materialResources.dataBuffer = file.materialDataBuffer.buffer;
         materialResources.dataBufferOffset = data_index * sizeof(MaterialSystem::MaterialConstants);
         materialResources.colorFactors = constants.colorFactors;
+        // A texture entry may omit its sampler, in which case glTF says use defaults. Calling
+        // .value() on that empty optional would be undefined behaviour.
+        auto bindTexture = [&](size_t textureIndex, AllocatedImage &outImage, VkSampler &outSampler)
+        {
+            const fastgltf::Texture &tex = gltf.textures[textureIndex];
+            if (!tex.imageIndex.has_value())
+            {
+                return;
+            }
+            outImage = images[tex.imageIndex.value()];
+            outSampler = tex.samplerIndex.has_value() ? file.samplers[tex.samplerIndex.value()] : engine.GetDefaultSampler();
+        };
+
         // grab textures from gltf file
         if (mat.pbrData.baseColorTexture.has_value())
         {
-            size_t img = gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
-            size_t sampler = gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
-
-            materialResources.colorImage = images[img];
-            materialResources.colorSampler = file.samplers[sampler];
+            bindTexture(mat.pbrData.baseColorTexture.value().textureIndex, materialResources.colorImage, materialResources.colorSampler);
         }
         if (mat.pbrData.metallicRoughnessTexture.has_value())
         {
-            size_t img = gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex.value();
-            size_t sampler = gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].samplerIndex.value();
+            bindTexture(mat.pbrData.metallicRoughnessTexture.value().textureIndex, materialResources.metalRoughImage,
+                        materialResources.metalRoughSampler);
+        }
 
-            materialResources.metalRoughImage = images[img];
-            materialResources.metalRoughSampler = file.samplers[sampler];
+        // Most of Bistro uses the archived spec/gloss model rather than metallic-roughness. Map it
+        // across approximately: diffuse becomes base colour, and roughness is the inverse of gloss.
+        if (mat.specularGlossiness != nullptr)
+        {
+            const auto &sg = *mat.specularGlossiness;
+
+            constants.colorFactors = glm::vec4(sg.diffuseFactor[0], sg.diffuseFactor[1], sg.diffuseFactor[2], sg.diffuseFactor[3]);
+            constants.metal_rough_factors.x = 0.0f;
+            constants.metal_rough_factors.y = 1.0f - float(sg.glossinessFactor);
+            sceneMaterialConstants[data_index] = constants;
+            materialResources.colorFactors = constants.colorFactors;
+
+            if (sg.diffuseTexture.has_value())
+            {
+                bindTexture(sg.diffuseTexture.value().textureIndex, materialResources.colorImage, materialResources.colorSampler);
+            }
         }
         // build material
         newMat->data = engine.GetMaterialSystem().write_material(device, passType, materialResources, file.descriptorPool);
@@ -475,7 +501,7 @@ VkSamplerMipmapMode extract_mipmap_mode(fastgltf::Filter filter)
     }
 }
 
-std::optional<AllocatedImage> load_image(fastgltf::Asset &asset, fastgltf::Image &image)
+std::optional<AllocatedImage> load_image(fastgltf::Asset &asset, fastgltf::Image &image, const std::filesystem::path &baseDir)
 {
     AllocatedImage newImage{};
 
@@ -492,8 +518,57 @@ std::optional<AllocatedImage> load_image(fastgltf::Asset &asset, fastgltf::Image
                 assert(filePath.uri.isLocalPath());   // We're only capable of loading
                                                       // local files.
 
-                const std::string path(filePath.uri.path().begin(),
-                                       filePath.uri.path().end()); // Thanks C++.
+                const std::string uriPath(filePath.uri.path().begin(),
+                                          filePath.uri.path().end()); // Thanks C++.
+
+                // glTF URIs are relative to the document, not to the working directory. Tolerate a
+                // leading slash, and fall back to the literal URI in case it is already absolute.
+                std::string relative = uriPath;
+                while (!relative.empty() && (relative.front() == '/' || relative.front() == '\\'))
+                {
+                    relative.erase(relative.begin());
+                }
+
+                std::filesystem::path fsPath = baseDir / relative;
+                if (!std::filesystem::exists(fsPath) && std::filesystem::exists(std::filesystem::path(uriPath)))
+                {
+                    fsPath = uriPath;
+                }
+
+                // MSFT_texture_dds assets name a .png source but may only ship the .dds beside it.
+                if (!std::filesystem::exists(fsPath))
+                {
+                    std::filesystem::path ddsPath = fsPath;
+                    ddsPath.replace_extension(".dds");
+
+                    if (std::filesystem::exists(ddsPath))
+                    {
+                        if (auto dds = load_dds(ddsPath))
+                        {
+                            newImage = *dds;
+                            return;
+                        }
+                        fmt::println("load_dds failed: {}", ddsPath.string());
+                        return;
+                    }
+
+                    fmt::println("texture missing: {} (and no .dds beside it)", fsPath.string());
+                    return;
+                }
+
+                // an explicitly-referenced .dds still needs the block loader, not stbi
+                if (fsPath.extension() == ".dds" || fsPath.extension() == ".DDS")
+                {
+                    if (auto dds = load_dds(fsPath))
+                    {
+                        newImage = *dds;
+                        return;
+                    }
+                    fmt::println("load_dds failed: {}", fsPath.string());
+                    return;
+                }
+
+                const std::string path = fsPath.string();
                 unsigned char *data = stbi_load(path.c_str(), &width, &height, &nrChannels, 4);
                 if (data)
                 {

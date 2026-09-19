@@ -37,6 +37,8 @@ add_executable (engine
   rgraph/features/DeferredRenderingFeature.cpp
   MaterialSystem.h
   MaterialSystem.cpp
+  dds_loader.h
+  dds_loader.cpp
   BindlessTextures.h
   BindlessTextures.cpp
   AccelStructure.h

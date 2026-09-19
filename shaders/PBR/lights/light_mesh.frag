@@ -43,19 +43,29 @@ void main()
 
     for (int i = 0; i < lightData.numLights; i++)
     {
-        PointLight currLight = lightData.pointLights[i];
-        vec3 lightPos = currLight.transform[3].xyz;
-        vec3 lightDistVec = lightPos - inPos.xyz;
-        dist = length(lightDistVec);
-        if (dist > currLight.range)
-            continue;
-        lightVec = lightDistVec / dist;
+        // see comp.frag: read members individually so culled lights never pull the mat4
+        if (lightData.pointLights[i].type == 0)
+        {
+            // directional: travels along the node's -Z, no position or falloff
+            lightVec = normalize(lightData.pointLights[i].transform[2].xyz);
+            radiance = lightData.pointLights[i].color * lightData.pointLights[i].intensity;
+        }
+        else
+        {
+            vec3 lightDistVec = lightData.pointLights[i].transform[3].xyz - inPos.xyz;
+
+            float distSq = dot(lightDistVec, lightDistVec);
+            float range = lightData.pointLights[i].range;
+            if (distSq > range * range)
+                continue;
+
+            dist = sqrt(distSq);
+            lightVec = lightDistVec / dist;
+            attenuation = 1.0 / max(distSq, 1e-4);
+            radiance = lightData.pointLights[i].color * attenuation * lightData.pointLights[i].intensity;
+        }
 
         halfwayVec = normalize(viewVec + lightVec);
-
-        // attenuation = 1.0 / (1.0 + 0.09 * dist + 0.032 * dist * dist);
-        attenuation = 1.0 / (dist * dist);
-        radiance = currLight.color * attenuation * currLight.intensity;
 
         NDF = DistributionGGX(normal, halfwayVec, roughness);
         G = GeometrySmith(normal, viewVec, lightVec, roughness);

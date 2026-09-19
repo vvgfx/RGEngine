@@ -224,14 +224,16 @@ void rgraph::DeferredRenderingFeature::compositePass(rgraph::PassExecution &pass
     // Light data
     AllocatedBuffer lightAllocBuffer = passExec.allocatedBuffers["lightBuffer"];
     LightData *lightdata = (LightData *)lightAllocBuffer.info.pMappedData;
-    lightdata->numLights = drawContext.lights.size();
+    // LightData holds a fixed 25; without this clamp a scene with more lights overruns the buffer.
+    lightdata->numLights = std::min<int>(int(drawContext.lights.size()), MAX_LIGHTS);
     for (int i = 0; i < lightdata->numLights; i++)
     {
         PointLight pl = {};
         pl.color = drawContext.lights[i].color;
         pl.transform = drawContext.lights[i].transform;
-        pl.intensity = drawContext.lights[i].intensity;
+        pl.intensity = drawContext.lights[i].intensity * drawContext.lightIntensityScale;
         pl.range = drawContext.lights[i].range;
+        pl.type = drawContext.lights[i].type;
         lightdata->pointLights[i] = pl;
     }
 
@@ -315,14 +317,16 @@ void rgraph::DeferredRenderingFeature::transparentPass(rgraph::PassExecution &pa
     // Light data
     AllocatedBuffer lightAllocBuffer = passExec.allocatedBuffers["lightBuffer"];
     LightData *lightdata = (LightData *)lightAllocBuffer.info.pMappedData;
-    lightdata->numLights = drawContext.lights.size();
+    // LightData holds a fixed 25; without this clamp a scene with more lights overruns the buffer.
+    lightdata->numLights = std::min<int>(int(drawContext.lights.size()), MAX_LIGHTS);
     for (int i = 0; i < lightdata->numLights; i++)
     {
         PointLight pl = {};
         pl.color = drawContext.lights[i].color;
         pl.transform = drawContext.lights[i].transform;
-        pl.intensity = drawContext.lights[i].intensity;
+        pl.intensity = drawContext.lights[i].intensity * drawContext.lightIntensityScale;
         pl.range = drawContext.lights[i].range;
+        pl.type = drawContext.lights[i].type;
         lightdata->pointLights[i] = pl;
     }
 

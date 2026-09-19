@@ -13,6 +13,8 @@ namespace rgraph
         bool enabled = true;
         bool shadowRays = true;
         bool showProbes = false;
+        bool sunShadows = true;
+        float probeRadius = 0.05f; // fraction of probe spacing; purely a debug-view size
         int raysPerProbe = 128;
         float hysteresis = 0.97f;
         float normalBias = 0.25f;
@@ -64,6 +66,7 @@ namespace rgraph
             glm::vec4 blend;
             glm::vec4 misc;
             glm::vec4 skyColor;
+            glm::vec4 flags; // x = ray-traced shadows in the composite pass
         };
 
         struct PushConstants
@@ -78,12 +81,15 @@ namespace rgraph
             glm::vec3 color;
             float intensity;
             float range;
-            float _pad[3];
+            int type;
+            float _pad[2];
         };
+
+        static constexpr int MAX_LIGHTS = 128;
 
         struct LightBlockGPU
         {
-            LightGPU lights[25];
+            LightGPU lights[MAX_LIGHTS];
             int numLights;
         };
 
@@ -108,7 +114,7 @@ namespace rgraph
 
         glm::vec3 volumeOrigin{0.0f};
         glm::vec3 volumeSpacing{1.0f};
-        glm::ivec3 probeCounts{16, 8, 16};
+        glm::ivec3 probeCounts{32, 12, 32};
         float maxRayDistance = 100.0f;
 
         AllocatedImage probeRayData;

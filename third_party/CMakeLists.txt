@@ -6,6 +6,8 @@ add_library(vma INTERFACE)
 
 add_library(stb_image INTERFACE)
 
+# Bistro is authored with the archived spec/gloss material model, which fastgltf gates behind this.
+set(FASTGLTF_ENABLE_DEPRECATED_EXT ON CACHE BOOL "" FORCE)
 add_subdirectory(fastgltf)
 add_subdirectory(fmt EXCLUDE_FROM_ALL)
 add_subdirectory(SDL EXCLUDE_FROM_ALL)

@@ -7,6 +7,9 @@ class Camera
   public:
     bool mousePressed = false;
     glm::vec3 velocity;
+
+    // world units per SECOND. Bistro is in centimetres, so this is ~5 m/s.
+    float speed = 500.f;
     glm::vec3 position;
     // vertical rotation
     float pitch{0.f};
@@ -20,5 +23,6 @@ class Camera
 
     void processSDLEvent(SDL_Event &e);
 
-    void update();
+    /// deltaSeconds keeps movement frame-rate independent; without it speed scales with framerate.
+    void update(float deltaSeconds);
 };

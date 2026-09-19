@@ -19,6 +19,7 @@ layout(set = DDGI_SET, binding = 0) uniform DDGIVolumeBlock
     vec4 blend;    // x hysteresis, y normalBias, z viewBias, w maxRayDistance
     vec4 misc;     // x depthSharpness, y irradianceGamma, z frameIndex, w unused
     vec4 skyColor; // zenith colour used when a probe ray escapes the scene
+    vec4 flags;    // x = ray-traced shadows in the composite pass
 }
 ddgi;
 
@@ -108,6 +109,26 @@ vec3 sphericalFibonacci(float i, float n)
     float cosTheta = 1.0 - (2.0 * i + 1.0) / n;
     float sinTheta = sqrt(clamp(1.0 - cosTheta * cosTheta, 0.0, 1.0));
     return vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+}
+
+/**
+ * A cheap three-band sky. Used both as the visible background and as the miss radiance for probe
+ * rays, so the lighting and the backdrop can never disagree.
+ */
+vec3 ddgiSky(vec3 dir)
+{
+    vec3 zenith = ddgi.skyColor.rgb;
+    vec3 horizon = ddgi.skyColor.rgb * 2.2 + vec3(0.05);
+    vec3 ground = ddgi.skyColor.rgb * 0.25;
+
+    float d = clamp(dir.y, -1.0, 1.0);
+
+    if (d < 0.0)
+    {
+        // pull the horizon band tight so the ground does not wash out the lower hemisphere
+        return mix(horizon, ground, clamp(-d * 4.0, 0.0, 1.0));
+    }
+    return mix(horizon, zenith, clamp(pow(d, 0.45), 0.0, 1.0));
 }
 
 #endif

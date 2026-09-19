@@ -19,21 +19,21 @@ void RGEngine::init()
 
     VulkanEngine::init();
 
-    std::string structurePath = {"../assets/outpostWithLights3.glb"};
+    std::string structurePath = {"../assets/niagara_bistro/bistro.gltf"};
 
     // this is called after the pipelines are initialzed.
     auto structureFile = loadGltf(structurePath);
 
     assert(structureFile.has_value());
 
-    loadedScenes["outpost"] = *structureFile;
+    loadedScenes["scene"] = *structureFile;
 
-    structureFile.value()->name = "outpost";
+    structureFile.value()->name = "scene";
 
     // mainDrawContext is rebuilt every frame, so take a private snapshot for the acceleration
     // structure and for fitting the DDGI probe volume to the scene bounds.
     DrawContext sceneSnapshot;
-    loadedScenes["outpost"]->Draw(glm::mat4{1.f}, sceneSnapshot);
+    loadedScenes["scene"]->Draw(glm::mat4{1.f}, sceneSnapshot);
 
     if (_rayQuerySupported)
     {
@@ -72,6 +72,8 @@ void RGEngine::init()
 
     // after the deferred feature so the probe overlay draws on top of the composited image
     rgraphInstance.AddFeature(ddgiDebugFeature);
+
+    mainCamera.position = glm::vec3(0.f, -400.f, 0.f);
 
     rgraphInstance.SetTimestampPeriod(timestampPeriod);
 }
@@ -125,7 +127,7 @@ void RGEngine::update_scene()
 
     VulkanEngine::update_scene();
 
-    loadedScenes["outpost"]->Draw(glm::mat4{1.f}, mainDrawContext);
+    loadedScenes["scene"]->Draw(glm::mat4{1.f}, mainDrawContext);
 
     auto end = std::chrono::system_clock::now();
 
@@ -375,13 +377,24 @@ void RGEngine::imGuiAddParams()
         }
 
         ImGui::Checkbox("Enabled", &s.enabled);
-        ImGui::Checkbox("Shadow rays", &s.shadowRays);
+        ImGui::Checkbox("Shadow rays (probes)", &s.shadowRays);
+        ImGui::Checkbox("Sun shadows", &s.sunShadows);
         ImGui::Checkbox("Show probes", &s.showProbes);
+        ImGui::SliderFloat("Probe size", &s.probeRadius, 0.01f, 0.3f);
         ImGui::SliderFloat("Hysteresis", &s.hysteresis, 0.80f, 0.995f, "%.3f");
         ImGui::SliderFloat("Normal bias", &s.normalBias, 0.0f, 1.0f);
         ImGui::SliderFloat("View bias", &s.viewBias, 0.0f, 2.0f);
         ImGui::SliderFloat("Depth sharpness", &s.depthSharpness, 1.0f, 100.0f);
         ImGui::ColorEdit3("Sky", &s.skyColor.x);
+    }
+
+    if (ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        // glTF light units vary wildly between exporters, so this is a manual dial rather than a
+        // baked-in photometric conversion.
+        ImGui::SliderFloat("Light intensity", &mainDrawContext.lightIntensityScale, 0.0f, 20.0f);
+        ImGui::SliderFloat("Camera speed", &mainCamera.speed, 10.0f, 10000.0f, "%.0f u/s", ImGuiSliderFlags_Logarithmic);
+        ImGui::Text("lights: %zu   opaque: %zu", mainDrawContext.lights.size(), mainDrawContext.OpaqueSurfaces.size());
     }
 
     ImGui::End();

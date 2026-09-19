@@ -105,6 +105,9 @@ struct GPUSceneData
     glm::vec4 sunlightDirection; // w for sun power
     glm::vec4 sunlightColor;
     glm::vec4 cameraPos;
+
+    // used to rebuild world-space view rays for the skybox; appended so existing offsets are unchanged.
+    glm::mat4 invViewproj;
 };
 
 // GPU lighting data required for punctual lights from GLTF.
@@ -115,6 +118,9 @@ struct GPULightingData
     glm::vec3 color;
     float intensity;
     float range;
+
+    // matches LightingData::LightType: 0 = directional, 1 = spot, 2 = point.
+    int type;
 };
 
 // {{{ SCENEGRAPHS --------------------------
@@ -140,6 +146,9 @@ struct DrawContext
     std::vector<RenderObject> OpaqueSurfaces;
     std::vector<RenderObject> TransparentSurfaces;
     std::vector<GPULightingData> lights;
+
+    // glTF light units vary by exporter, so intensity is scaled at upload time instead.
+    float lightIntensityScale = 1.0f;
 };
 
 // }}} SCENEGRAPHS end -----------------------
@@ -160,6 +169,12 @@ class VulkanEngine
 
     // false when VK_KHR_ray_query is unavailable; DDGI then falls back to voxel tracing.
     bool _rayQuerySupported = false;
+
+    // scene-scale dependent; Bistro is in centimetres so it needs far more range than the old 10000.
+    float cameraFarPlane = 100000.f;
+
+    // seconds; previous frame's duration, used to keep camera movement frame-rate independent.
+    float _deltaTime = 1.0f / 60.0f;
     VkSurfaceKHR _surface;
     VkSwapchainKHR _swapchain;
     VkFormat _swapchainImageFormat;

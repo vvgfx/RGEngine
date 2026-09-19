@@ -118,6 +118,10 @@ void VulkanEngine::init_vulkan()
                                                 .runtimeDescriptorArray = true,
                                                 .bufferDeviceAddress = true};
 
+    // required to sample the BC7 textures the DDS loader uploads.
+    VkPhysicalDeviceFeatures coreFeatures{};
+    coreFeatures.textureCompressionBC = true;
+
     vkb::PhysicalDeviceSelector selector{vkbInst};
 
     vkb::PhysicalDevice PhysicalDevice = selector.set_minimum_version(1, 3)
@@ -125,6 +129,7 @@ void VulkanEngine::init_vulkan()
                                              .allow_any_gpu_device_type(false)
                                              .set_required_features_13(features)
                                              .set_required_features_12(features12)
+                                             .set_required_features(coreFeatures)
                                              .set_surface(_surface)
                                              .add_required_extension("VK_KHR_shader_relaxed_extended_instruction")
                                              .select()
@@ -778,6 +783,10 @@ void VulkanEngine::run()
         // convert to microseconds (integer), and then come back to miliseconds
         auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
         get_current_frame().stats.frameTime = elapsed.count() / 1000.f;
+
+        // last frame's duration drives next frame's movement; clamped so a hitch cannot teleport the camera.
+        const float dt = elapsed.count() / 1000000.f;
+        _deltaTime = dt < 0.1f ? dt : 0.1f;
     }
 }
 
@@ -885,11 +894,15 @@ void VulkanEngine::update_scene()
     mainDrawContext.TransparentSurfaces.clear();
     mainDrawContext.lights.clear();
 
-    mainCamera.update();
+    mainCamera.update(_deltaTime);
 
     glm::mat4 view = mainCamera.getViewMatrix();
 
-    glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)_windowExtent.width / (float)_windowExtent.height, 10000.f, 0.1f);
+    // near/far are passed swapped on purpose: that is what produces reverse-Z. Bistro is authored in
+    // centimetres and spans ~16000 units, so the old 10000 far plane clipped most of it away. Reverse-Z
+    // keeps depth precision fine at this range.
+    glm::mat4 projection =
+        glm::perspective(glm::radians(70.f), (float)_windowExtent.width / (float)_windowExtent.height, cameraFarPlane, 0.1f);
 
     // invert the Y direction on projection matrix so that we are more similar
     // to opengl and gltf axis
@@ -898,6 +911,7 @@ void VulkanEngine::update_scene()
     sceneData.view = view;
     sceneData.proj = projection;
     sceneData.viewproj = projection * view;
+    sceneData.invViewproj = glm::inverse(sceneData.viewproj);
 
     // some default lighting parameters
     sceneData.ambientColor = glm::vec4(.1f);

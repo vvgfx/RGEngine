@@ -75,9 +75,16 @@ void sgraph::LightNode::Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
     // each light node has 1 light.
     GPULightingData lData;
     lData.color = lightingData->color;
-    lData.intensity = lightingData->intensity;
+
+    // glTF is photometric: directional lights are lux, punctual ones candela. Dividing by the peak
+    // luminous efficacy (683 lm/W) lands both in the radiometric range the shaders expect, turning
+    // Bistro's 6830 lux sun into ~10. The UI scale is a multiplier on top for exporters that
+    // normalise instead.
+    lData.intensity = lightingData->intensity / 683.0f;
+
     lData.transform = topMatrix * this->worldTransform;
     lData.range = lightingData->range;
+    lData.type = static_cast<int>(lightingData->type);
     ctx.lights.push_back(lData);
     Node::Draw(topMatrix, ctx);
 }

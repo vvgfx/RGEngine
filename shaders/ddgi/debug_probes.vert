@@ -14,6 +14,7 @@ layout(set = 1, binding = 0) uniform SceneData
     vec4 sunlightDirection;
     vec4 sunlightColor;
     vec4 cameraPos;
+    mat4 invViewproj;
 }
 sceneData;
 

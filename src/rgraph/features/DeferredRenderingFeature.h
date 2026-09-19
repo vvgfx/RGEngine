@@ -29,12 +29,15 @@ namespace rgraph
             glm::vec3 color;
             float intensity;
             float range;
-            float _pad[3]; // pad to 96 bytes
+            int type;      // 0 = directional, 1 = spot, 2 = point
+            float _pad[2]; // pad to 96 bytes
         };
+
+        static constexpr int MAX_LIGHTS = 128;
 
         struct LightData
         {
-            PointLight pointLights[25];
+            PointLight pointLights[MAX_LIGHTS];
             int numLights;
         };
 
