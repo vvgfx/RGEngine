@@ -1,0 +1,81 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+#include "../PBR_helpers.glsl"
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D hdrImage;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D outImage;
+
+layout(push_constant) uniform PostPushConstants
+{
+    vec4 params; // x = exposure, y = FXAA enabled
+}
+pc;
+
+/// Linear HDR -> tonemapped, gamma-encoded LDR. FXAA needs this applied before it measures luma.
+vec3 resolve(vec2 uv)
+{
+    vec3 hdr = textureLod(hdrImage, uv, 0.0).rgb * pc.params.x;
+    return pow(ACESFilm(hdr), vec3(1.0 / 2.2));
+}
+
+float luma(vec3 c)
+{
+    return dot(c, vec3(0.299, 0.587, 0.114));
+}
+
+void main()
+{
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(outImage);
+
+    if (texel.x >= size.x || texel.y >= size.y)
+    {
+        return;
+    }
+
+    vec2 texelSize = 1.0 / vec2(size);
+    vec2 uv = (vec2(texel) + 0.5) * texelSize;
+
+    vec3 rgbM = resolve(uv);
+
+    if (pc.params.y < 0.5)
+    {
+        imageStore(outImage, texel, vec4(rgbM, 1.0));
+        return;
+    }
+
+    // FXAA: luma of the 4-neighbourhood, then a blend along the detected edge.
+    float lumaM = luma(rgbM);
+    float lumaNW = luma(resolve(uv + vec2(-1.0, -1.0) * texelSize));
+    float lumaNE = luma(resolve(uv + vec2(1.0, -1.0) * texelSize));
+    float lumaSW = luma(resolve(uv + vec2(-1.0, 1.0) * texelSize));
+    float lumaSE = luma(resolve(uv + vec2(1.0, 1.0) * texelSize));
+
+    float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
+    float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
+
+    // flat enough to leave alone: skips the blur on smooth gradients
+    if (lumaMax - lumaMin < max(0.0312, lumaMax * 0.125))
+    {
+        imageStore(outImage, texel, vec4(rgbM, 1.0));
+        return;
+    }
+
+    vec2 dir = vec2(-((lumaNW + lumaNE) - (lumaSW + lumaSE)), ((lumaNW + lumaSW) - (lumaNE + lumaSE)));
+
+    float dirReduce = max((lumaNW + lumaNE + lumaSW + lumaSE) * 0.03125, 0.0078125);
+    float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
+    dir = clamp(dir * rcpDirMin, vec2(-8.0), vec2(8.0)) * texelSize;
+
+    vec3 rgbA = 0.5 * (resolve(uv + dir * (1.0 / 3.0 - 0.5)) + resolve(uv + dir * (2.0 / 3.0 - 0.5)));
+    vec3 rgbB = rgbA * 0.5 + 0.25 * (resolve(uv + dir * -0.5) + resolve(uv + dir * 0.5));
+
+    // rgbB reaches further; fall back to the narrower tap if it overshot the local range
+    float lumaB = luma(rgbB);
+    vec3 result = (lumaB < lumaMin || lumaB > lumaMax) ? rgbA : rgbB;
+
+    imageStore(outImage, texel, vec4(result, 1.0));
+}

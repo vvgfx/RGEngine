@@ -8,6 +8,8 @@ layout(set = 0, binding = 0) uniform SceneData
     vec4 sunlightColor;
     vec4 cameraPos;
     mat4 invViewproj;
+    vec4 ssaoParams;
+    vec4 debugParams;
 }
 sceneData;
 
@@ -31,8 +33,10 @@ layout(set = 2, binding = 0) uniform GLTFMaterialData
 {
     vec4 colorFactors;
     vec4 metal_rough_factors;
+    vec4 extra0; // x = alpha cutoff (0 = off), y = 1 when metalRoughTex is a spec/gloss map
 }
 materialData;
 
 layout(set = 2, binding = 1) uniform sampler2D colorTex;
 layout(set = 2, binding = 2) uniform sampler2D metalRoughTex;
+layout(set = 2, binding = 3) uniform sampler2D normalTex;

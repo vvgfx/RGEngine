@@ -30,16 +30,6 @@ void RGEngine::init()
 
     structureFile.value()->name = "scene";
 
-    // mainDrawContext is rebuilt every frame, so take a private snapshot for the acceleration
-    // structure and for fitting the DDGI probe volume to the scene bounds.
-    DrawContext sceneSnapshot;
-    loadedScenes["scene"]->Draw(glm::mat4{1.f}, sceneSnapshot);
-
-    if (_rayQuerySupported)
-    {
-        accelStructure.Build(this, _device, sceneSnapshot, _mainDeletionQueue);
-    }
-
     rgraphInstance.Init(_device, _drawImage.imageExtent, _instance);
 
     VkExtent3D extent = {_windowExtent.width, _windowExtent.height, 1};
@@ -48,30 +38,34 @@ void RGEngine::init()
     PBRFeature = std::make_shared<rgraph::PBRShadingFeature>(mainDrawContext, _device, msCreateInfo, sceneData, _gpuSceneDataDescriptorLayout,
                                                              _mainDeletionQueue);
 
-    // must precede the deferred feature: its composite pipeline layout needs the DDGI set layout.
-    ddgiFeature = std::make_shared<rgraph::DDGIFeature>(this, _device, accelStructure, sceneSnapshot, mainDrawContext, sceneData,
-                                                        _gpuSceneDataDescriptorLayout, _drawImage.imageFormat, _depthImage.imageFormat,
-                                                        _mainDeletionQueue);
-    ddgiDebugFeature = std::make_shared<rgraph::DDGIDebugFeature>(ddgiFeature.get());
+    // must precede the deferred feature: its composite pipeline layout needs the shadow set layout.
+    shadowFeature = std::make_shared<rgraph::ShadowFeature>(_device, _mainDeletionQueue, mainDrawContext, sceneData);
 
     deferredFeature = std::make_shared<rgraph::DeferredRenderingFeature>(mainDrawContext, _device, sceneData, _gpuSceneDataDescriptorLayout,
-                                                                         msCreateInfo, _mainDeletionQueue, ddgiFeature.get());
+                                                                         msCreateInfo, _mainDeletionQueue, shadowFeature.get());
     // create MSAA images. TODO: move these out somewhere later.
-    createMsaaImages();
+    // createMsaaImages(); // 8x MSAA targets, ~354MB, only used by the disabled PBRShadingFeature
+
+    postImage = GPUResourceAllocator::Instance().create_image(
+        _drawImage.imageExtent, _drawImage.imageFormat,
+        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    _mainDeletionQueue.push_function([this]() { GPUResourceAllocator::Instance().destroy_image(postImage); });
+
+    postFeature = std::make_shared<rgraph::PostProcessFeature>(_device, _mainDeletionQueue, _drawImage, postImage);
 
     rgraphInstance.AddTrackedImage("drawImage", VK_IMAGE_LAYOUT_UNDEFINED, _drawImage);
     rgraphInstance.AddTrackedImage("depthImage", VK_IMAGE_LAYOUT_UNDEFINED, _depthImage);
-    rgraphInstance.AddTrackedImage("msaaColor", VK_IMAGE_LAYOUT_UNDEFINED, msaaColor);
-    rgraphInstance.AddTrackedImage("msaaDepth", VK_IMAGE_LAYOUT_UNDEFINED, msaaDepth);
+    rgraphInstance.AddTrackedImage("postImage", VK_IMAGE_LAYOUT_UNDEFINED, postImage);
 
-    rgraphInstance.AddFeature(computeFeature);
+    // the composite pass clears drawImage, so the background compute pass was pure waste
+    // rgraphInstance.AddFeature(computeFeature);
     // builder.AddFeature(PBRFeature);
-    // registration order is execution order: probes must be updated before the composite samples them.
-    rgraphInstance.AddFeature(ddgiFeature);
+    // registration order is execution order: cascades must be rendered before the composite reads them.
+    rgraphInstance.AddFeature(shadowFeature);
     rgraphInstance.AddFeature(deferredFeature);
 
-    // after the deferred feature so the probe overlay draws on top of the composited image
-    rgraphInstance.AddFeature(ddgiDebugFeature);
+    // last: everything above writes linear HDR, this resolves it to displayable LDR
+    rgraphInstance.AddFeature(postFeature);
 
     mainCamera.position = glm::vec3(0.f, -400.f, 0.f);
 
@@ -126,6 +120,8 @@ void RGEngine::update_scene()
     auto start = std::chrono::system_clock::now();
 
     VulkanEngine::update_scene();
+
+    sceneData.ssaoParams.x = float(ssaoSampleCount);
 
     loadedScenes["scene"]->Draw(glm::mat4{1.f}, mainDrawContext);
 
@@ -228,11 +224,11 @@ void RGEngine::draw()
     VkCommandBuffer cmd = get_current_frame()._mainCommandBuffer;
 
     // transition the draw image and the swapchain image into their correct transfer layouts
-    vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    vkutil::transition_image(cmd, postImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     // execute a copy from the draw image into the swapchain
-    vkutil::copy_image_to_image(cmd, _drawImage.image, _swapchainImages[swapchainImageIndex], _drawExtent, _swapchainExtent);
+    vkutil::copy_image_to_image(cmd, postImage.image, _swapchainImages[swapchainImageIndex], _drawExtent, _swapchainExtent);
 
     // set swapchain image layout to Attachment Optimal so we can draw it
     vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -367,25 +363,38 @@ void RGEngine::imGuiAddParams()
 
     // The graph rebuilds every frame, so each of these takes effect on the next frame with no
     // invalidation path or pipeline rebuild.
-    if (ImGui::CollapsingHeader("DDGI", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("Shadows", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        rgraph::DDGISettings &s = ddgiFeature->settings;
-
-        if (!_rayQuerySupported)
-        {
-            ImGui::TextWrapped("Ray query unavailable on this device.");
-        }
-
+        rgraph::ShadowSettings &s = shadowFeature->settings;
         ImGui::Checkbox("Enabled", &s.enabled);
-        ImGui::Checkbox("Shadow rays (probes)", &s.shadowRays);
-        ImGui::Checkbox("Sun shadows", &s.sunShadows);
-        ImGui::Checkbox("Show probes", &s.showProbes);
-        ImGui::SliderFloat("Probe size", &s.probeRadius, 0.01f, 0.3f);
-        ImGui::SliderFloat("Hysteresis", &s.hysteresis, 0.80f, 0.995f, "%.3f");
-        ImGui::SliderFloat("Normal bias", &s.normalBias, 0.0f, 1.0f);
-        ImGui::SliderFloat("View bias", &s.viewBias, 0.0f, 2.0f);
-        ImGui::SliderFloat("Depth sharpness", &s.depthSharpness, 1.0f, 100.0f);
-        ImGui::ColorEdit3("Sky", &s.skyColor.x);
+        ImGui::SliderFloat("PCF radius", &s.pcfRadius, 0.0f, 4.0f);
+        ImGui::SliderFloat("Max distance", &s.maxDistance, 20.0f, 400.0f);
+        ImGui::SliderFloat("Split lambda", &s.cascadeSplitLambda, 0.0f, 1.0f);
+    }
+
+    if (ImGui::CollapsingHeader("Ambient", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::SliderInt("SSAO samples", (int *)&ssaoSampleCount, 0, 32);
+        ImGui::SliderFloat("SSAO radius", &sceneData.ssaoParams.y, 0.1f, 10.0f);
+        ImGui::SliderFloat("SSAO strength", &sceneData.ssaoParams.z, 0.0f, 3.0f);
+        ImGui::SliderFloat("Ambient intensity", &sceneData.ssaoParams.w, 0.0f, 3.0f);
+        ImGui::ColorEdit3("Sky", &sceneData.ambientColor.x);
+    }
+
+    if (ImGui::CollapsingHeader("Debug view", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        static const char *modes[] = {"Off", "Albedo", "Normal", "SSAO", "Shadow", "Cascade", "Roughness", "Metallic", "Position"};
+        int mode = int(sceneData.debugParams.x);
+        if (ImGui::Combo("Mode", &mode, modes, IM_ARRAYSIZE(modes)))
+        {
+            sceneData.debugParams.x = float(mode);
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Post", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::Checkbox("FXAA", &postFeature->settings.fxaa);
+        ImGui::SliderFloat("Exposure", &postFeature->settings.exposure, 0.05f, 8.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
     }
 
     if (ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen))

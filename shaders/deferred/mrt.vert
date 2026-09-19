@@ -42,7 +42,8 @@ void main()
 
     outPosition = (PushConstants.modelMatrix * position).xyz;
 
-    outNormal = (PushConstants.modelMatrix * vec4(v.normal, 0.f)).xyz;
+    // inverse-transpose: the raw model matrix skews normals under non-uniform scale
+    outNormal = transpose(inverse(mat3(PushConstants.modelMatrix))) * v.normal;
 
     // color is always 1, I can probably remove this.
     outColor = v.color.xyz * materialData.colorFactors.xyz;

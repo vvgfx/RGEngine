@@ -1,5 +1,5 @@
 #include "rgraph/features/DeferredRenderingFeature.h"
-#include "DDGIFeature.h"
+#include "ShadowFeature.h"
 #include "GPUResourceAllocator.h"
 #include "rgraph/Rendergraph.h"
 #include "vk_engine.h"
@@ -12,8 +12,8 @@ bool is_visible(const RenderObject &obj, const glm::mat4 &viewproj);
 
 rgraph::DeferredRenderingFeature::DeferredRenderingFeature(DrawContext &drawContext, VkDevice _device, GPUSceneData &gpuSceneData,
                                                            VkDescriptorSetLayout gpuSceneLayout, MaterialSystemCreateInfo &materialSystemCreateInfo,
-                                                           DeletionQueue &delQueue, DDGIFeature *ddgiFeature)
-    : drawContext(drawContext), gpuSceneData(gpuSceneData), ddgiFeature(ddgiFeature)
+                                                           DeletionQueue &delQueue, ShadowFeature *shadowFeature)
+    : drawContext(drawContext), gpuSceneData(gpuSceneData), shadowFeature(shadowFeature)
 {
     _gpuSceneDataDescriptorLayout = gpuSceneLayout;
 
@@ -94,6 +94,7 @@ void rgraph::DeferredRenderingFeature::Register(rgraph::Rendergraph *builder)
             pass.ReadsImage("normal_gbuf", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             pass.ReadsImage("albedo_gbuf", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             pass.ReadsImage("metalrough_gbuf", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            pass.ReadsImage("shadowAtlas", VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL);
             pass.AddColorAttachment("drawImage", false, &colorClearValue);
             pass.AddDepthStencilAttachment("depth_gbuf", true, nullptr);
             pass.CreatesBuffer("lightBuffer", sizeof(LightData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
@@ -261,7 +262,7 @@ void rgraph::DeferredRenderingFeature::compositePass(rgraph::PassExecution &pass
 
     vkCmdBindPipeline(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline.pipeline);
 
-    VkDescriptorSet sets[] = {compDescriptor, sceneDescriptor, lightDescriptor, ddgiFeature->GetFrameSet()};
+    VkDescriptorSet sets[] = {compDescriptor, sceneDescriptor, lightDescriptor, shadowFeature->GetFrameSet()};
     vkCmdBindDescriptorSets(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline.layout, 0, 4, sets, 0, nullptr);
 
     VkViewport viewport = {};
@@ -459,7 +460,7 @@ void rgraph::DeferredRenderingFeature::createPipelines(MaterialSystemCreateInfo 
     }
 
     VkDescriptorSetLayout compLayouts[] = {compDescriptorSetLayout, materialSystemCreateInfo._gpuSceneDataDescriptorLayout, lightDescriptorSetLayout,
-                                           ddgiFeature->GetSetLayout()};
+                                           shadowFeature->GetSetLayout()};
 
     meshLayoutInfo.setLayoutCount = 4;
     meshLayoutInfo.pSetLayouts = compLayouts;

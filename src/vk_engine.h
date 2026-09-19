@@ -108,6 +108,12 @@ struct GPUSceneData
 
     // used to rebuild world-space view rays for the skybox; appended so existing offsets are unchanged.
     glm::mat4 invViewproj;
+
+    // x = SSAO sample count, y = SSAO radius, z = SSAO strength, w = ambient intensity
+    glm::vec4 ssaoParams{16.f, 2.5f, 1.2f, 1.f};
+
+    // x = debug view mode (0 = off); see DebugMode in comp.frag
+    glm::vec4 debugParams{0.f};
 };
 
 // GPU lighting data required for punctual lights from GLTF.
@@ -167,9 +173,6 @@ class VulkanEngine
     VkPhysicalDevice _chosenGPU;
     VkDevice _device;
 
-    // false when VK_KHR_ray_query is unavailable; DDGI then falls back to voxel tracing.
-    bool _rayQuerySupported = false;
-
     // scene-scale dependent; Bistro is in centimetres so it needs far more range than the old 10000.
     float cameraFarPlane = 100000.f;
 
@@ -222,6 +225,7 @@ class VulkanEngine
     AllocatedImage _blackImage;
     AllocatedImage _greyImage;
     AllocatedImage _errorCheckerboardImage;
+    AllocatedImage _flatNormalImage;
 
     VkSampler _defaultSamplerLinear;
     VkSampler _defaultSamplerNearest;
@@ -289,6 +293,11 @@ class VulkanEngine
         return _errorCheckerboardImage;
     }
 
+    const AllocatedImage &GetFlatNormalImage()
+    {
+        return _flatNormalImage;
+    }
+
     VkSampler GetDefaultSampler()
     {
         return _defaultSamplerLinear;
@@ -297,11 +306,6 @@ class VulkanEngine
     VkPhysicalDevice GetPhysicalDevice() const
     {
         return _chosenGPU;
-    }
-
-    bool IsRayQuerySupported() const
-    {
-        return _rayQuerySupported;
     }
 
     // scenegraph stuff

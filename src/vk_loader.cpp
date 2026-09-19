@@ -96,10 +96,18 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
         sampl.maxLod = VK_LOD_CLAMP_NONE;
         sampl.minLod = 0;
 
-        sampl.magFilter = extract_filter(sampler.magFilter.value_or(fastgltf::Filter::Nearest));
-        sampl.minFilter = extract_filter(sampler.minFilter.value_or(fastgltf::Filter::Nearest));
+        // glTF samplers routinely omit filters; nearest is a poor default, linear is what content expects.
+        sampl.magFilter = extract_filter(sampler.magFilter.value_or(fastgltf::Filter::Linear));
+        sampl.minFilter = extract_filter(sampler.minFilter.value_or(fastgltf::Filter::Linear));
 
-        sampl.mipmapMode = extract_mipmap_mode(sampler.minFilter.value_or(fastgltf::Filter::Nearest));
+        sampl.mipmapMode = extract_mipmap_mode(sampler.minFilter.value_or(fastgltf::Filter::LinearMipMapLinear));
+
+        // anisotropy is only legal when both filters are LINEAR
+        if (sampl.magFilter == VK_FILTER_LINEAR && sampl.minFilter == VK_FILTER_LINEAR)
+        {
+            sampl.anisotropyEnable = VK_TRUE;
+            sampl.maxAnisotropy = 16.f;
+        }
 
         VkSampler newSampler;
         vkCreateSampler(device, &sampl, nullptr, &newSampler);
@@ -172,9 +180,15 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
 
         constants.metal_rough_factors.x = mat.pbrData.metallicFactor;
         constants.metal_rough_factors.y = mat.pbrData.roughnessFactor;
+
+        // extra[0].x = alpha cutoff (0 disables the test). MaterialConstants already pads out 14
+        // spare vec4s, so this costs no layout change.
+        constants.extra[0].x = (mat.alphaMode == fastgltf::AlphaMode::Mask) ? float(mat.alphaCutoff) : 0.0f;
+
         // write material parameters to buffer
         sceneMaterialConstants[data_index] = constants;
 
+        // MASK stays in the opaque bucket: it wants a discard, not blending.
         MaterialPass passType = MaterialPass::MainColor;
         if (mat.alphaMode == fastgltf::AlphaMode::Blend)
         {
@@ -187,6 +201,8 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
         materialResources.colorSampler = engine.GetDefaultSampler();
         materialResources.metalRoughImage = engine.GetDefaultImage();
         materialResources.metalRoughSampler = engine.GetDefaultSampler();
+        materialResources.normalImage = engine.GetFlatNormalImage();
+        materialResources.normalSampler = engine.GetDefaultSampler();
 
         // set the uniform buffer for the material data
         materialResources.dataBuffer = file.materialDataBuffer.buffer;
@@ -215,6 +231,10 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
             bindTexture(mat.pbrData.metallicRoughnessTexture.value().textureIndex, materialResources.metalRoughImage,
                         materialResources.metalRoughSampler);
         }
+        if (mat.normalTexture.has_value())
+        {
+            bindTexture(mat.normalTexture.value().textureIndex, materialResources.normalImage, materialResources.normalSampler);
+        }
 
         // Most of Bistro uses the archived spec/gloss model rather than metallic-roughness. Map it
         // across approximately: diffuse becomes base colour, and roughness is the inverse of gloss.
@@ -231,6 +251,14 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
             if (sg.diffuseTexture.has_value())
             {
                 bindTexture(sg.diffuseTexture.value().textureIndex, materialResources.colorImage, materialResources.colorSampler);
+            }
+            if (sg.specularGlossinessTexture.has_value())
+            {
+                bindTexture(sg.specularGlossinessTexture.value().textureIndex, materialResources.metalRoughImage,
+                            materialResources.metalRoughSampler);
+                // flag the swizzle: this texture is RGB specular + A glossiness, not B/G metal-rough
+                constants.extra[0].y = 1.0f;
+                sceneMaterialConstants[data_index] = constants;
             }
         }
         // build material

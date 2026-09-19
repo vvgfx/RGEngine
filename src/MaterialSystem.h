@@ -31,6 +31,8 @@ struct MaterialSystem
         VkSampler colorSampler;
         AllocatedImage metalRoughImage;
         VkSampler metalRoughSampler;
+        AllocatedImage normalImage;
+        VkSampler normalSampler;
         VkBuffer dataBuffer;
         uint32_t dataBufferOffset;
         glm::vec4 colorFactors{1.0f};

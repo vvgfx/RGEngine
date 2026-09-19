@@ -69,11 +69,18 @@ namespace rgraph
 
         void CreatesBuffer(std::string name, size_t size, VkBufferUsageFlags usages);
 
+        /// Render area for this pass. Leave unset to use the graph's global extent; shadow atlases
+        /// and other off-screen targets need their own.
+        void SetRenderExtent(uint32_t width, uint32_t height);
+
         void ReadsBuffer(const std::string name);
         void WritesBuffer(const std::string name);
 
         PassType type;
         std::string name;
+
+        // {0,0} means "use the graph extent"
+        VkExtent2D renderExtent{0, 0};
 
       private:
         std::vector<PassImageRead> imageReads;

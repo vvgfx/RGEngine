@@ -282,7 +282,7 @@ void rgraph::Rendergraph::Run(FrameData &frameData)
         // PassExecution exec;
         exec.cmd = frameData._mainCommandBuffer;
         exec._device = _device;
-        exec._drawExtent = _extent;
+        exec._drawExtent = pass.renderExtent.width != 0 ? VkExtent3D{pass.renderExtent.width, pass.renderExtent.height, 1} : _extent;
         exec.allocatedImages = images;
         exec.delQueue = &(frameData._deletionQueue);
         exec.frameDescriptor = &(frameData._frameDescriptors);
@@ -324,7 +324,9 @@ void rgraph::Rendergraph::Run(FrameData &frameData)
                                                                 images[pass.depthAttachment.resolveName].imageView,
                                                                 VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, pass.depthAttachment.resolutionMode);
             }
-            VkRenderingInfo renderInfo = vkinit::rendering_info({_extent.width, _extent.height}, &colorAttachments, &depthAttachment);
+            const VkExtent2D area =
+                pass.renderExtent.width != 0 ? pass.renderExtent : VkExtent2D{_extent.width, _extent.height};
+            VkRenderingInfo renderInfo = vkinit::rendering_info(area, &colorAttachments, &depthAttachment);
             vkCmdBeginRendering(cmd, &renderInfo);
         }
         executionLambdas[i](exec);
@@ -400,6 +402,11 @@ rgraph::Rendergraph &rgraph::Rendergraph::Instance()
         return *instance;
     }
     throw(true && "Rendergraph has not been initialized yet!");
+}
+
+void rgraph::Pass::SetRenderExtent(uint32_t width, uint32_t height)
+{
+    renderExtent = {width, height};
 }
 
 void rgraph::Pass::CreatesBuffer(std::string name, size_t size, VkBufferUsageFlags usages)

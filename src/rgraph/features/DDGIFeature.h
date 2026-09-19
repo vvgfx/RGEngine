@@ -14,6 +14,8 @@ namespace rgraph
         bool shadowRays = true;
         bool showProbes = false;
         bool sunShadows = true;
+        int aoRays = 2;        // per pixel in the composite pass; 0 disables
+        float aoRadius = 0.0f; // world units; 0 means "derive from probe spacing"
         float probeRadius = 0.05f; // fraction of probe spacing; purely a debug-view size
         int raysPerProbe = 128;
         float hysteresis = 0.97f;

@@ -118,9 +118,11 @@ void VulkanEngine::init_vulkan()
                                                 .runtimeDescriptorArray = true,
                                                 .bufferDeviceAddress = true};
 
-    // required to sample the BC7 textures the DDS loader uploads.
+    // textureCompressionBC: required to sample the BC7 textures the DDS loader uploads.
+    // samplerAnisotropy: without it, surfaces viewed at grazing angles (cobbles, roads) alias badly.
     VkPhysicalDeviceFeatures coreFeatures{};
     coreFeatures.textureCompressionBC = true;
+    coreFeatures.samplerAnisotropy = true;
 
     vkb::PhysicalDeviceSelector selector{vkbInst};
 
@@ -134,18 +136,6 @@ void VulkanEngine::init_vulkan()
                                              .add_required_extension("VK_KHR_shader_relaxed_extended_instruction")
                                              .select()
                                              .value();
-
-    // Ray tracing is optional: if absent, DDGI falls back to its voxel tracing backend.
-    VkPhysicalDeviceAccelerationStructureFeaturesKHR asFeatures{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR, .accelerationStructure = true};
-    VkPhysicalDeviceRayQueryFeaturesKHR rqFeatures{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR, .rayQuery = true};
-
-    _rayQuerySupported = PhysicalDevice.enable_extensions_if_present({VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_QUERY_EXTENSION_NAME,
-                                                                      VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME}) &&
-                         PhysicalDevice.enable_extension_features_if_present(asFeatures) &&
-                         PhysicalDevice.enable_extension_features_if_present(rqFeatures);
-
-    fmt::println("Ray query support: {}", _rayQuerySupported ? "yes" : "no (DDGI will use voxel tracing)");
 
     vkb::DeviceBuilder DeviceBuilder{PhysicalDevice};
 
@@ -482,6 +472,11 @@ void VulkanEngine::init_default_data()
     uint32_t black = glm::packUnorm4x8(glm::vec4(0, 0, 0, 0));
     _blackImage = _gpuResourceAllocator.create_image((void *)&black, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
 
+    // (0.5, 0.5, 1) decodes to +Z, i.e. "no perturbation", for the 47 materials without a normal map
+    uint32_t flatNormal = glm::packUnorm4x8(glm::vec4(0.5f, 0.5f, 1.f, 1.f));
+    _flatNormalImage =
+        _gpuResourceAllocator.create_image((void *)&flatNormal, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
+
     // checkerboard image
     uint32_t magenta = glm::packUnorm4x8(glm::vec4(1, 0, 1, 1));
     std::array<uint32_t, 16 * 16> pixels; // for 16x16 checkerboard texture
@@ -497,6 +492,11 @@ void VulkanEngine::init_default_data()
 
     VkSamplerCreateInfo sampl = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
 
+    // maxLod defaults to 0, which would pin sampling to mip 0 and discard every uploaded mip chain.
+    sampl.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sampl.minLod = 0.f;
+    sampl.maxLod = VK_LOD_CLAMP_NONE;
+
     sampl.magFilter = VK_FILTER_NEAREST;
     sampl.minFilter = VK_FILTER_NEAREST;
 
@@ -504,6 +504,11 @@ void VulkanEngine::init_default_data()
 
     sampl.magFilter = VK_FILTER_LINEAR;
     sampl.minFilter = VK_FILTER_LINEAR;
+
+    // anisotropy requires both filters to be LINEAR, so it can only be set on this one
+    sampl.anisotropyEnable = VK_TRUE;
+    sampl.maxAnisotropy = 16.f;
+
     vkCreateSampler(_device, &sampl, nullptr, &_defaultSamplerLinear);
 
     _mainDeletionQueue.push_function(
@@ -914,7 +919,7 @@ void VulkanEngine::update_scene()
     sceneData.invViewproj = glm::inverse(sceneData.viewproj);
 
     // some default lighting parameters
-    sceneData.ambientColor = glm::vec4(.1f);
+    sceneData.ambientColor = glm::vec4(0.10f, 0.20f, 0.40f, 1.f);
     sceneData.sunlightColor = glm::vec4(1.f);
     sceneData.sunlightDirection = glm::vec4(0, 1, 0.5, 1.f);
     sceneData.cameraPos = mainCamera.getCameraPos();

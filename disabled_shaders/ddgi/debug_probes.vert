@@ -15,6 +15,7 @@ layout(set = 1, binding = 0) uniform SceneData
     vec4 sunlightColor;
     vec4 cameraPos;
     mat4 invViewproj;
+    vec4 ssaoParams;
 }
 sceneData;
 
@@ -28,8 +29,9 @@ layout(location = 0) out vec3 outNormal;
 layout(location = 1) flat out int outProbeIndex;
 
 // A UV sphere generated on the fly, so no probe mesh has to be uploaded.
-const int SLICES = 8;
-const int STACKS = 8;
+// 4x4 is 32 triangles per probe instead of 128. This is a debug overlay; it does not need to be round.
+const int SLICES = 4;
+const int STACKS = 4;
 
 void main()
 {

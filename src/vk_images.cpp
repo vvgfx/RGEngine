@@ -158,6 +158,7 @@ vkutil::BarrierMerger::BarrierMerger()
 
 void vkutil::BarrierMerger::transition_image(VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout)
 {
+    const VkImageLayout oldLayout = currentLayout;
 
     if (imgBarriers.size() > MAX_IMAGE_BARRIERS)
     {
@@ -174,9 +175,12 @@ void vkutil::BarrierMerger::transition_image(VkImage image, VkImageLayout curren
     imageBarrier.oldLayout = currentLayout;
     imageBarrier.newLayout = newLayout;
 
-    VkImageAspectFlags aspectMask = (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
-                                        ? VK_IMAGE_ASPECT_DEPTH_BIT
-                                        : VK_IMAGE_ASPECT_COLOR_BIT; // currently not using stencil buffers, so this fine.
+    // any depth layout, not just the attachment one -- sampled shadow maps use DEPTH_READ_ONLY.
+    const bool isDepth = newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL || newLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL ||
+                         newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL || newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL ||
+                         oldLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL || oldLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+
+    VkImageAspectFlags aspectMask = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
     imageBarrier.subresourceRange = vkinit::image_subresource_range(aspectMask);
     imageBarrier.image = image;
 

@@ -21,8 +21,5 @@ void main()
     vec3 irr = texture(ddgiIrradianceTex, ddgiProbeUV(inProbeIndex, normalize(inNormal), DDGI_IRR_TILE, irrSize)).rgb;
     irr = pow(irr, vec3(DDGI_GAMMA * 0.5));
 
-    vec3 color = ACESFilm(irr);
-    color = pow(color, vec3(1.0 / 2.2));
-
-    outFragColor = vec4(color, 1.0);
+    outFragColor = vec4(irr, 1.0);
 }

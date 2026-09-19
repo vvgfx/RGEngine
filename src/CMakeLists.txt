@@ -41,10 +41,10 @@ add_executable (engine
   dds_loader.cpp
   BindlessTextures.h
   BindlessTextures.cpp
-  AccelStructure.h
-  AccelStructure.cpp
-  rgraph/features/DDGIFeature.h
-  rgraph/features/DDGIFeature.cpp
+  rgraph/features/PostProcessFeature.h
+  rgraph/features/PostProcessFeature.cpp
+  rgraph/features/ShadowFeature.h
+  rgraph/features/ShadowFeature.cpp
 )
 
 set_property(TARGET engine PROPERTY CXX_STANDARD 20)

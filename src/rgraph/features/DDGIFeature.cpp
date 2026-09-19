@@ -308,7 +308,9 @@ void rgraph::DDGIFeature::tracePass(PassExecution &passExec)
     volume->blend = glm::vec4(settings.hysteresis, settings.normalBias * volumeSpacing.x, settings.viewBias * volumeSpacing.x, maxRayDistance);
     volume->misc = glm::vec4(settings.depthSharpness, settings.irradianceGamma, float(frameIndex), active() ? 1.0f : 0.0f);
     volume->skyColor = glm::vec4(settings.skyColor, 1.0f);
-    volume->flags = glm::vec4(settings.sunShadows && accel.IsValid() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+    // AO needs the TLAS, same as sun shadows.
+    const float aoRadius = settings.aoRadius > 0.0f ? settings.aoRadius : glm::min(glm::min(volumeSpacing.x, volumeSpacing.y), volumeSpacing.z);
+    volume->flags = glm::vec4(settings.sunShadows && accel.IsValid() ? 1.0f : 0.0f, accel.IsValid() ? float(settings.aoRays) : 0.0f, aoRadius, 0.0f);
 
     auto *lights = (LightBlockGPU *)lightBuffer.info.pMappedData;
     lights->numLights = std::min<int>(int(drawContext.lights.size()), MAX_LIGHTS);
@@ -438,7 +440,7 @@ void rgraph::DDGIFeature::debugProbePass(PassExecution &passExec)
     VkRect2D scissor{{0, 0}, {passExec._drawExtent.width, passExec._drawExtent.height}};
     vkCmdSetScissor(passExec.cmd, 0, 1, &scissor);
 
-    const uint32_t vertsPerProbe = 8 * 8 * 6; // SLICES * STACKS * 6, matching debug_probes.vert
+    const uint32_t vertsPerProbe = 4 * 4 * 6; // SLICES * STACKS * 6, matching debug_probes.vert
     vkCmdDraw(passExec.cmd, vertsPerProbe, uint32_t(numProbes()), 0, 0);
 
     passExec.drawCalls = 1;

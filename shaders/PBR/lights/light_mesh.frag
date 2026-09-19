@@ -86,12 +86,6 @@ void main()
 
     vec3 ambient = vec3(0.03f) * albedo * ao;
 
-    vec3 color = ambient + Lo;
-
-    // HDR tonemapping
-    color = ACESFilm(color); // this tonemapping seems to preserve blacks better.
-    // gamma correct
-    color = pow(color, vec3(1.0 / 2.2));
-
-    outFragColor = vec4(color, 1.0);
+    // linear HDR: the post pass owns tonemapping and gamma
+    outFragColor = vec4(ambient + Lo, 1.0);
 }
