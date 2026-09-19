@@ -12,8 +12,13 @@
 #include <RGEngine.h>
 #include <chrono>
 #include <cmath>
+#include <glm/trigonometric.hpp>
 #include <memory>
 #include <vulkan/vulkan_core.h>
+
+// Last on purpose: vGizmo3D.h pulls "using namespace glm;" into the global namespace (it needs
+// it for its own vec3 declarations), so including it here keeps that out of every header above.
+#include "imGuIZMOquat.h"
 
 void RGEngine::init()
 {
@@ -109,7 +114,10 @@ void RGEngine::init()
     // last: everything above writes linear HDR, this resolves it to displayable LDR
     rgraphInstance.AddFeature(postFeature);
 
-    mainCamera.position = glm::vec3(0.f, -400.f, 0.f);
+    // Street-level view of the corner cafe, captured with the P key.
+    mainCamera.position = glm::vec3(-27.042f, 2.945f, 8.513f);
+    mainCamera.pitch = 0.0400f;
+    mainCamera.yaw = -4.4401f;
 
     rgraphInstance.SetTimestampPeriod(timestampPeriod);
 }
@@ -170,11 +178,53 @@ void RGEngine::update_scene()
 
     loadedScenes["scene"]->Draw(glm::mat4{1.f}, mainDrawContext);
 
+    applySunDirection();
+
     auto end = std::chrono::system_clock::now();
 
     // convert to microseconds (integer), and then come back to miliseconds
     auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     get_current_frame().stats.scene_update_time = elapsed.count() / 1000.f;
+}
+
+/**
+ * @brief Rewrite the directional light's node basis from the UI's azimuth/elevation.
+ *
+ * The scene graph refills DrawContext::lights every frame, so this has to run after the Draw above
+ * or it would be overwritten. Doing it here rather than at each consumer means the composite, the
+ * cascades and the light cull all read the same direction with no extra plumbing -- they already
+ * agree that a directional light's +Z column points towards the light.
+ *
+ * Note sceneData.sunlightDirection is NOT the sun: only the disabled forward path reads it.
+ */
+void RGEngine::applySunDirection()
+{
+    for (GPULightingData &light : mainDrawContext.lights)
+    {
+        if (light.type != 0)
+        {
+            continue;
+        }
+
+        // Seed from the asset once, so the widget opens exactly where the glTF put the sun and
+        // touching nothing changes nothing.
+        if (!mainDrawContext.sunSeeded)
+        {
+            mainDrawContext.sunDir = glm::normalize(glm::vec3(light.transform[2]));
+            mainDrawContext.sunSeeded = true;
+        }
+
+        const float len = glm::length(mainDrawContext.sunDir);
+        const glm::vec3 dir = len > 1e-6f ? mainDrawContext.sunDir / len : glm::vec3(0.f, 1.f, 0.f);
+
+        // Keep the basis orthonormal rather than writing column 2 alone: the reference axis has to
+        // dodge the degenerate case of the sun directly overhead.
+        const glm::vec3 ref = std::abs(dir.y) > 0.99f ? glm::vec3(0.f, 0.f, 1.f) : glm::vec3(0.f, 1.f, 0.f);
+        const glm::vec3 right = glm::normalize(glm::cross(ref, dir));
+        const glm::vec3 up = glm::cross(dir, right);
+
+        light.transform = glm::mat4(glm::vec4(right, 0.f), glm::vec4(up, 0.f), glm::vec4(dir, 0.f), light.transform[3]);
+    }
 }
 
 void RGEngine::createMsaaImages()
@@ -487,7 +537,31 @@ void RGEngine::imGuiAddParams()
         // baked-in photometric conversion.
         ImGui::SliderFloat("Sun intensity", &mainDrawContext.sunIntensityScale, 0.0f, 20.0f);
         ImGui::SliderFloat("Lamp intensity", &mainDrawContext.localIntensityScale, 0.0f, 20.0f);
-        ImGui::SliderFloat("Camera speed", &mainCamera.speed, 10.0f, 10000.0f, "%.0f u/s", ImGuiSliderFlags_Logarithmic);
+
+        // The gizmo is driven in VIEW space, not world space. Its sphere then stands for the
+        // screen you are looking at: drag the arrow up and the sun rises in shot, drag it towards
+        // you and the sun ends up behind the camera lighting the scene head on. Fed world space
+        // instead, the same drag means something different every time the camera turns, which is
+        // useless for actually placing a sun against a shot.
+        //
+        // The view matrix's upper 3x3 is orthonormal, so transpose == inverse. The Y flip lives in
+        // the projection rather than the view, so view-space +Y really is up on screen.
+        const glm::mat3 viewRot = glm::mat3(sceneData.view);
+        glm::vec3 sunView = viewRot * mainDrawContext.sunDir;
+
+        if (ImGui::gizmo3D("##SunDir", sunView, 110, imguiGizmo::modeDirection))
+        {
+            mainDrawContext.sunDir = glm::transpose(viewRot) * sunView;
+        }
+
+        ImGui::SameLine();
+        ImGui::BeginGroup();
+        ImGui::TextDisabled("sun (world)");
+        ImGui::TextDisabled("%.2f %.2f %.2f", mainDrawContext.sunDir.x, mainDrawContext.sunDir.y, mainDrawContext.sunDir.z);
+        ImGui::EndGroup();
+
+        ImGui::SliderFloat("Camera speed", &mainCamera.speed, 0.5f, 500.0f, "%.1f u/s", ImGuiSliderFlags_Logarithmic);
+        ImGui::TextDisabled("press P to dump camera pos/pitch/yaw to stdout");
         ImGui::Text("lights: %zu   opaque: %zu", mainDrawContext.lights.size(), mainDrawContext.OpaqueSurfaces.size());
     }
 

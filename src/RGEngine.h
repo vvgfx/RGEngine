@@ -68,4 +68,8 @@ class RGEngine : public VulkanEngine
     AllocatedImage bloomB;
 
     void createMsaaImages();
+
+    /// Drive the glTF directional light's basis from the UI azimuth/elevation. Must run after the
+    /// scene graph refills DrawContext::lights.
+    void applySunDirection();
 };

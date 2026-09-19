@@ -1,4 +1,5 @@
 #include "SDL_events.h"
+#include "fmt/base.h"
 #include "glm/ext/vector_float4.hpp"
 #include <camera.h>
 #include <glm/gtx/quaternion.hpp>
@@ -29,6 +30,15 @@ void Camera::processSDLEvent(SDL_Event &e)
         if (e.key.keysym.sym == SDLK_d)
         {
             velocity.x = 1;
+        }
+
+        // Dump the view as paste-ready source. Pitch and yaw matter as much as position: without
+        // them the camera lands in the right place looking the wrong way.
+        if (e.key.keysym.sym == SDLK_p)
+        {
+            fmt::println("mainCamera.position = glm::vec3({:.3f}f, {:.3f}f, {:.3f}f);", position.x, position.y, position.z);
+            fmt::println("mainCamera.pitch = {:.4f}f;", pitch);
+            fmt::println("mainCamera.yaw = {:.4f}f;", yaw);
         }
     }
 

@@ -161,6 +161,13 @@ struct DrawContext
     // tuned against. Daylight is this one dial back up.
     float sunIntensityScale = 0.02f;
     float localIntensityScale = 1.0f;
+
+    // Direction TOWARDS the sun, driven by the imGuIZMO widget. The glTF authors this on the
+    // directional light's node, so it is seeded from the asset on the first frame and drives the
+    // node basis after that -- meaning shading, cascades and culling all see one direction with no
+    // extra plumbing.
+    glm::vec3 sunDir{0.f, 1.f, 0.f};
+    bool sunSeeded = false;
 };
 
 // }}} SCENEGRAPHS end -----------------------
@@ -179,7 +186,7 @@ class VulkanEngine
     VkPhysicalDevice _chosenGPU;
     VkDevice _device;
 
-    // scene-scale dependent; Bistro is in centimetres so it needs far more range than the old 10000.
+    // scene-scale dependent. Generous for a ~130 unit scene, but reverse-Z keeps precision fine.
     float cameraFarPlane = 100000.f;
 
     // seconds; previous frame's duration, used to keep camera movement frame-rate independent.

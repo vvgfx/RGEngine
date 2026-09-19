@@ -50,6 +50,38 @@ target_sources(imgui PRIVATE
   imgui/imgui_impl_sdl2.cpp
   )
 
+# PUBLIC so every consumer agrees: imgui_internal.h hard-errors if this is not defined before
+# imgui.h, and imGuIZMO pulls in imgui_internal.h. Setting it on the target means the order in
+# which any .cpp includes the two headers stops mattering.
+target_compile_definitions(imgui PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
+
 target_link_libraries(imgui PUBLIC Vulkan::Vulkan SDL2::SDL2)
 
 target_include_directories(stb_image INTERFACE stb_image)
+
+# imGuIZMO.quat: 3D direction widget, used for the sun. It draws entirely through ImGui's DrawList,
+# so it is backend-agnostic and pulls in nothing from Vulkan.
+#
+# Only imGuIZMOquat.cpp is compiled: imguizmo_quat.cpp is a v4 alias that #includes it, so building
+# both gives duplicate symbols.
+add_library(imguizmo STATIC)
+
+target_sources(imguizmo PRIVATE
+  imGuIZMO/imGuIZMOquat.h
+  imGuIZMO/imGuIZMOquat.cpp
+  )
+
+# CMAKE_CURRENT_SOURCE_DIR (third_party/) is on the path so the widget's default <imgui/imgui.h>
+# resolves without patching the vendored config header.
+target_include_directories(imguizmo PUBLIC imGuIZMO ${CMAKE_CURRENT_SOURCE_DIR})
+
+# VGIZMO_USES_GLM swaps its bundled vgMath for glm, so it speaks the same vec3 the engine does.
+#
+# Do NOT add VGM_DISABLE_AUTO_NAMESPACE here: on the glm path vGizmo3D.h guards its own
+# "using namespace glm;" on that macro alone, and its declarations use unqualified vec3/quat, so
+# defining it fails to compile the library itself. The leak is contained by including
+# imGuIZMOquat.h last in RGEngine.cpp instead.
+target_compile_definitions(imguizmo PUBLIC VGIZMO_USES_GLM)
+
+target_link_libraries(imguizmo PUBLIC imgui glm)
+set_property(TARGET imguizmo PROPERTY CXX_STANDARD 20)

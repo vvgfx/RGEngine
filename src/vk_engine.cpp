@@ -903,9 +903,10 @@ void VulkanEngine::update_scene()
 
     glm::mat4 view = mainCamera.getViewMatrix();
 
-    // near/far are passed swapped on purpose: that is what produces reverse-Z. Bistro is authored in
-    // centimetres and spans ~16000 units, so the old 10000 far plane clipped most of it away. Reverse-Z
-    // keeps depth precision fine at this range.
+    // near/far are passed swapped on purpose: that is what produces reverse-Z, which keeps depth
+    // precision usable across the whole range. (The old note here claimed Bistro was in centimetres
+    // and spanned ~16000 units; that was the Blender-exported version. zeux's is in metres and the
+    // scene is ~130 units across -- street level is y = 2.9.)
     glm::mat4 projection =
         glm::perspective(glm::radians(70.f), (float)_windowExtent.width / (float)_windowExtent.height, cameraFarPlane, 0.1f);
 
