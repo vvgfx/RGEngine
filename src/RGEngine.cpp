@@ -41,9 +41,11 @@ void RGEngine::init()
 
     // must precede the deferred feature: its composite pipeline layout needs the shadow set layout.
     shadowFeature = std::make_shared<rgraph::ShadowFeature>(_device, _mainDeletionQueue, mainDrawContext, sceneData);
+    localShadowFeature = std::make_shared<rgraph::LocalShadowFeature>(_device, _mainDeletionQueue, mainDrawContext, sceneData);
 
     deferredFeature = std::make_shared<rgraph::DeferredRenderingFeature>(mainDrawContext, _device, sceneData, _gpuSceneDataDescriptorLayout,
-                                                                         msCreateInfo, _mainDeletionQueue, shadowFeature.get());
+                                                                         msCreateInfo, _mainDeletionQueue, shadowFeature.get(),
+                                                                         localShadowFeature.get());
     // create MSAA images. TODO: move these out somewhere later.
     // createMsaaImages(); // 8x MSAA targets, ~354MB, only used by the disabled PBRShadingFeature
 
@@ -91,6 +93,7 @@ void RGEngine::init()
     // builder.AddFeature(PBRFeature);
     // registration order is execution order: cascades must be rendered before the composite reads them.
     rgraphInstance.AddFeature(shadowFeature);
+    rgraphInstance.AddFeature(localShadowFeature);
     rgraphInstance.AddFeature(deferredFeature);
 
     // after the deferred passes: reflections need the lit image to reflect
@@ -407,6 +410,15 @@ void RGEngine::imGuiAddParams()
         ImGui::SliderFloat("Split lambda", &s.cascadeSplitLambda, 0.0f, 1.0f);
     }
 
+    if (ImGui::CollapsingHeader("Local shadows", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        rgraph::LocalShadowSettings &l = localShadowFeature->settings;
+        ImGui::Checkbox("Point shadows", &l.enabled);
+        ImGui::SliderInt("Shadow casters", &l.maxLights, 0, int(rgraph::LocalShadowFeature::MAX_LIGHTS));
+        ImGui::SliderFloat("Local normal bias", &l.normalBias, 0.0f, 0.5f);
+        ImGui::SliderFloat("Local PCF", &l.pcfRadius, 0.0f, 4.0f);
+    }
+
     if (ImGui::CollapsingHeader("Ambient", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::SliderInt("SSAO samples", (int *)&ssaoSampleCount, 0, 32);
@@ -456,7 +468,8 @@ void RGEngine::imGuiAddParams()
     {
         // glTF light units vary wildly between exporters, so this is a manual dial rather than a
         // baked-in photometric conversion.
-        ImGui::SliderFloat("Light intensity", &mainDrawContext.lightIntensityScale, 0.0f, 20.0f);
+        ImGui::SliderFloat("Sun intensity", &mainDrawContext.sunIntensityScale, 0.0f, 20.0f);
+        ImGui::SliderFloat("Lamp intensity", &mainDrawContext.localIntensityScale, 0.0f, 20.0f);
         ImGui::SliderFloat("Camera speed", &mainCamera.speed, 10.0f, 10000.0f, "%.0f u/s", ImGuiSliderFlags_Logarithmic);
         ImGui::Text("lights: %zu   opaque: %zu", mainDrawContext.lights.size(), mainDrawContext.OpaqueSurfaces.size());
     }

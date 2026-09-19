@@ -19,7 +19,8 @@ struct PointLight
     vec3 color;
     float intensity;
     float range;
-    int type; // 0 = directional, 1 = spot, 2 = point
+    int type;        // 0 = directional, 1 = spot, 2 = point
+    int shadowIndex; // slot in the local shadow atlas, or -1
 };
 
 layout(set = 1, binding = 0) uniform LightData

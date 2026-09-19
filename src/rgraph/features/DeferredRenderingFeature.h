@@ -12,12 +12,14 @@ namespace rgraph
      *
      */
     class ShadowFeature;
+    class LocalShadowFeature;
 
     class DeferredRenderingFeature : public IFeature
     {
       public:
         DeferredRenderingFeature(DrawContext &drawContext, VkDevice _device, GPUSceneData &gpuSceneData, VkDescriptorSetLayout gpuSceneLayout,
-                                 MaterialSystemCreateInfo &materialSystemCreateInfo, DeletionQueue &delQueue, ShadowFeature *shadowFeature);
+                                 MaterialSystemCreateInfo &materialSystemCreateInfo, DeletionQueue &delQueue, ShadowFeature *shadowFeature,
+                                 LocalShadowFeature *localShadowFeature);
 
         void Register(Rendergraph *builder) override;
 
@@ -29,8 +31,9 @@ namespace rgraph
             glm::vec3 color;
             float intensity;
             float range;
-            int type;      // 0 = directional, 1 = spot, 2 = point
-            float _pad[2]; // pad to 96 bytes
+            int type;        // 0 = directional, 1 = spot, 2 = point
+            int shadowIndex; // slot in the local shadow atlas, or -1
+            float _pad[1];   // pad to 96 bytes
         };
 
         static constexpr int MAX_LIGHTS = 128;
@@ -73,5 +76,8 @@ namespace rgraph
 
         // supplies set 3 of the composite pipeline (cascade matrices + shadow atlas)
         ShadowFeature *shadowFeature;
+
+        // supplies set 4 (point-light cube shadow atlas)
+        LocalShadowFeature *localShadowFeature;
     };
 } // namespace rgraph

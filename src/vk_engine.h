@@ -153,8 +153,10 @@ struct DrawContext
     std::vector<RenderObject> TransparentSurfaces;
     std::vector<GPULightingData> lights;
 
-    // glTF light units vary by exporter, so intensity is scaled at upload time instead.
-    float lightIntensityScale = 1.0f;
+    // glTF light units vary by exporter, so intensity is scaled at upload time. Sun and local
+    // lights scale separately: a single dial cannot express "night" without also killing the lamps.
+    float sunIntensityScale = 1.0f;
+    float localIntensityScale = 1.0f;
 };
 
 // }}} SCENEGRAPHS end -----------------------

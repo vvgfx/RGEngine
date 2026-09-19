@@ -1,4 +1,5 @@
 #include "rgraph/features/DeferredRenderingFeature.h"
+#include "LocalShadowFeature.h"
 #include "ShadowFeature.h"
 #include "GPUResourceAllocator.h"
 #include "rgraph/Rendergraph.h"
@@ -12,8 +13,9 @@ bool is_visible(const RenderObject &obj, const glm::mat4 &viewproj);
 
 rgraph::DeferredRenderingFeature::DeferredRenderingFeature(DrawContext &drawContext, VkDevice _device, GPUSceneData &gpuSceneData,
                                                            VkDescriptorSetLayout gpuSceneLayout, MaterialSystemCreateInfo &materialSystemCreateInfo,
-                                                           DeletionQueue &delQueue, ShadowFeature *shadowFeature)
-    : drawContext(drawContext), gpuSceneData(gpuSceneData), shadowFeature(shadowFeature)
+                                                           DeletionQueue &delQueue, ShadowFeature *shadowFeature,
+                                                           LocalShadowFeature *localShadowFeature)
+    : drawContext(drawContext), gpuSceneData(gpuSceneData), shadowFeature(shadowFeature), localShadowFeature(localShadowFeature)
 {
     _gpuSceneDataDescriptorLayout = gpuSceneLayout;
 
@@ -95,6 +97,7 @@ void rgraph::DeferredRenderingFeature::Register(rgraph::Rendergraph *builder)
             pass.ReadsImage("albedo_gbuf", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             pass.ReadsImage("metalrough_gbuf", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             pass.ReadsImage("shadowAtlas", VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL);
+            pass.ReadsImage("localShadowAtlas", VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL);
             pass.AddColorAttachment("drawImage", false, &colorClearValue);
             pass.AddDepthStencilAttachment("depth_gbuf", true, nullptr);
             pass.CreatesBuffer("lightBuffer", sizeof(LightData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
@@ -232,9 +235,11 @@ void rgraph::DeferredRenderingFeature::compositePass(rgraph::PassExecution &pass
         PointLight pl = {};
         pl.color = drawContext.lights[i].color;
         pl.transform = drawContext.lights[i].transform;
-        pl.intensity = drawContext.lights[i].intensity * drawContext.lightIntensityScale;
+        pl.intensity = drawContext.lights[i].intensity *
+                       (drawContext.lights[i].type == 0 ? drawContext.sunIntensityScale : drawContext.localIntensityScale);
         pl.range = drawContext.lights[i].range;
         pl.type = drawContext.lights[i].type;
+        pl.shadowIndex = localShadowFeature != nullptr ? localShadowFeature->ShadowIndexFor(i) : -1;
         lightdata->pointLights[i] = pl;
     }
 
@@ -262,8 +267,9 @@ void rgraph::DeferredRenderingFeature::compositePass(rgraph::PassExecution &pass
 
     vkCmdBindPipeline(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline.pipeline);
 
-    VkDescriptorSet sets[] = {compDescriptor, sceneDescriptor, lightDescriptor, shadowFeature->GetFrameSet()};
-    vkCmdBindDescriptorSets(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline.layout, 0, 4, sets, 0, nullptr);
+    VkDescriptorSet sets[] = {compDescriptor, sceneDescriptor, lightDescriptor, shadowFeature->GetFrameSet(),
+                              localShadowFeature->GetFrameSet()};
+    vkCmdBindDescriptorSets(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline.layout, 0, 5, sets, 0, nullptr);
 
     VkViewport viewport = {};
     viewport.x = 0;
@@ -325,9 +331,11 @@ void rgraph::DeferredRenderingFeature::transparentPass(rgraph::PassExecution &pa
         PointLight pl = {};
         pl.color = drawContext.lights[i].color;
         pl.transform = drawContext.lights[i].transform;
-        pl.intensity = drawContext.lights[i].intensity * drawContext.lightIntensityScale;
+        pl.intensity = drawContext.lights[i].intensity *
+                       (drawContext.lights[i].type == 0 ? drawContext.sunIntensityScale : drawContext.localIntensityScale);
         pl.range = drawContext.lights[i].range;
         pl.type = drawContext.lights[i].type;
+        pl.shadowIndex = localShadowFeature != nullptr ? localShadowFeature->ShadowIndexFor(i) : -1;
         lightdata->pointLights[i] = pl;
     }
 
@@ -460,9 +468,9 @@ void rgraph::DeferredRenderingFeature::createPipelines(MaterialSystemCreateInfo 
     }
 
     VkDescriptorSetLayout compLayouts[] = {compDescriptorSetLayout, materialSystemCreateInfo._gpuSceneDataDescriptorLayout, lightDescriptorSetLayout,
-                                           shadowFeature->GetSetLayout()};
+                                           shadowFeature->GetSetLayout(), localShadowFeature->GetSetLayout()};
 
-    meshLayoutInfo.setLayoutCount = 4;
+    meshLayoutInfo.setLayoutCount = 5;
     meshLayoutInfo.pSetLayouts = compLayouts;
     meshLayoutInfo.pPushConstantRanges = nullptr;
     meshLayoutInfo.pushConstantRangeCount = 0;

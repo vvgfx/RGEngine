@@ -7,6 +7,9 @@
 #define SHADOW_SET 3
 #include "../shadow/shadow_input.glsl"
 
+#define LOCAL_SHADOW_SET 4
+#include "../shadow/local_shadow.glsl"
+
 layout(location = 0) in vec2 inUV;
 
 layout(location = 0) out vec4 outFragColor;
@@ -198,6 +201,9 @@ void main()
 
             lightVec = lightDistVec / sqrt(distSq);
             radiance = lightData.pointLights[i].color * lightData.pointLights[i].intensity / max(distSq, 1e-4);
+
+            radiance *= sampleLocalShadow(lightData.pointLights[i].shadowIndex, position,
+                                          lightData.pointLights[i].transform[3].xyz, normal);
         }
 
         float nDotL = max(dot(normal, lightVec), 0.0f);

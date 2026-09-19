@@ -43,6 +43,8 @@ add_executable (engine
   BindlessTextures.cpp
   rgraph/features/PostProcessFeature.h
   rgraph/features/PostProcessFeature.cpp
+  rgraph/features/LocalShadowFeature.h
+  rgraph/features/LocalShadowFeature.cpp
   rgraph/features/SSRFeature.h
   rgraph/features/SSRFeature.cpp
   rgraph/features/ShadowFeature.h

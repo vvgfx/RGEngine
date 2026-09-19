@@ -318,7 +318,8 @@ void rgraph::DDGIFeature::tracePass(PassExecution &passExec)
     {
         const GPULightingData &src = drawContext.lights[i];
         lights->lights[i] =
-            LightGPU{src.transform, src.color, src.intensity * drawContext.lightIntensityScale, src.range, src.type, {}};
+            LightGPU{src.transform, src.color,
+                     src.intensity * (src.type == 0 ? drawContext.sunIntensityScale : drawContext.localIntensityScale), src.range, src.type, {}};
     }
 
     // A fresh random rotation each frame is what lets 128 rays converge through hysteresis.
