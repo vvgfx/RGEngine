@@ -51,5 +51,9 @@ class RGEngine : public VulkanEngine
     // tonemapped, gamma-encoded, anti-aliased result; this is what reaches the swapchain
     AllocatedImage postImage;
 
+    // half-res ping-pong targets for the bloom blur chain
+    AllocatedImage bloomA;
+    AllocatedImage bloomB;
+
     void createMsaaImages();
 };

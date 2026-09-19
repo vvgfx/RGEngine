@@ -172,7 +172,7 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
         materials.push_back(newMat);
         file.materials[mat.name.c_str()] = newMat;
 
-        MaterialSystem::MaterialConstants constants;
+        MaterialSystem::MaterialConstants constants{}; // value-init: extra[] is read by the shaders now
         constants.colorFactors.x = mat.pbrData.baseColorFactor[0];
         constants.colorFactors.y = mat.pbrData.baseColorFactor[1];
         constants.colorFactors.z = mat.pbrData.baseColorFactor[2];
@@ -203,6 +203,8 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
         materialResources.metalRoughSampler = engine.GetDefaultSampler();
         materialResources.normalImage = engine.GetFlatNormalImage();
         materialResources.normalSampler = engine.GetDefaultSampler();
+        materialResources.emissiveImage = engine.GetDefaultImage(); // white: emissive = factor when untextured
+        materialResources.emissiveSampler = engine.GetDefaultSampler();
 
         // set the uniform buffer for the material data
         materialResources.dataBuffer = file.materialDataBuffer.buffer;
@@ -235,6 +237,26 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
         {
             bindTexture(mat.normalTexture.value().textureIndex, materialResources.normalImage, materialResources.normalSampler);
         }
+
+        // extra[1].xyz = emissive colour. Bistro puts the multiplier straight in the factor (up to
+        // 100) rather than using KHR_materials_emissive_strength, so do not clamp it to [0,1].
+        glm::vec3 emissive(mat.emissiveFactor[0], mat.emissiveFactor[1], mat.emissiveFactor[2]);
+        emissive *= float(mat.emissiveStrength);
+
+        if (mat.emissiveTexture.has_value())
+        {
+            bindTexture(mat.emissiveTexture.value().textureIndex, materialResources.emissiveImage, materialResources.emissiveSampler);
+
+            // A few materials ship an emissive texture with a zero factor, which by spec multiplies
+            // to nothing. That is clearly not the intent, so treat the factor as white.
+            if (emissive == glm::vec3(0.0f))
+            {
+                emissive = glm::vec3(1.0f);
+            }
+        }
+
+        constants.extra[1] = glm::vec4(emissive, 0.0f);
+        sceneMaterialConstants[data_index] = constants;
 
         // Most of Bistro uses the archived spec/gloss model rather than metallic-roughness. Map it
         // across approximately: diffuse becomes base colour, and roughness is the inverse of gloss.

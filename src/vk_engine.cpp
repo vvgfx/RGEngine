@@ -918,10 +918,8 @@ void VulkanEngine::update_scene()
     sceneData.viewproj = projection * view;
     sceneData.invViewproj = glm::inverse(sceneData.viewproj);
 
-    // some default lighting parameters
-    sceneData.ambientColor = glm::vec4(0.10f, 0.20f, 0.40f, 1.f);
-    sceneData.sunlightColor = glm::vec4(1.f);
-    sceneData.sunlightDirection = glm::vec4(0, 1, 0.5, 1.f);
+    // ambientColor / sunlight* are UI-owned defaults living on GPUSceneData; assigning them here
+    // would overwrite the user's edit every frame.
     sceneData.cameraPos = mainCamera.getCameraPos();
 }
 

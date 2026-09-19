@@ -51,11 +51,26 @@ void RGEngine::init()
         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
     _mainDeletionQueue.push_function([this]() { GPUResourceAllocator::Instance().destroy_image(postImage); });
 
-    postFeature = std::make_shared<rgraph::PostProcessFeature>(_device, _mainDeletionQueue, _drawImage, postImage);
+    // Half res: bloom is a wide low-frequency effect, so full res buys nothing but cost.
+    const VkExtent3D bloomExtent{_drawImage.imageExtent.width / 2, _drawImage.imageExtent.height / 2, 1};
+    const VkImageUsageFlags bloomUsage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+
+    bloomA = GPUResourceAllocator::Instance().create_image(bloomExtent, _drawImage.imageFormat, bloomUsage);
+    bloomB = GPUResourceAllocator::Instance().create_image(bloomExtent, _drawImage.imageFormat, bloomUsage);
+    _mainDeletionQueue.push_function(
+        [this]()
+        {
+            GPUResourceAllocator::Instance().destroy_image(bloomA);
+            GPUResourceAllocator::Instance().destroy_image(bloomB);
+        });
+
+    postFeature = std::make_shared<rgraph::PostProcessFeature>(_device, _mainDeletionQueue, _drawImage, postImage, bloomA, bloomB);
 
     rgraphInstance.AddTrackedImage("drawImage", VK_IMAGE_LAYOUT_UNDEFINED, _drawImage);
     rgraphInstance.AddTrackedImage("depthImage", VK_IMAGE_LAYOUT_UNDEFINED, _depthImage);
     rgraphInstance.AddTrackedImage("postImage", VK_IMAGE_LAYOUT_UNDEFINED, postImage);
+    rgraphInstance.AddTrackedImage("bloomA", VK_IMAGE_LAYOUT_UNDEFINED, bloomA);
+    rgraphInstance.AddTrackedImage("bloomB", VK_IMAGE_LAYOUT_UNDEFINED, bloomB);
 
     // the composite pass clears drawImage, so the background compute pass was pure waste
     // rgraphInstance.AddFeature(computeFeature);
@@ -97,6 +112,9 @@ void RGEngine::init_default_data()
 
     // write the buffer
     MaterialSystem::MaterialConstants *sceneUniformData = (MaterialSystem::MaterialConstants *)materialConstants.info.pMappedData;
+
+    // freshly mapped memory is uninitialised; extra[] is read by the shaders (alpha cutoff, emissive)
+    *sceneUniformData = MaterialSystem::MaterialConstants{};
     sceneUniformData->colorFactors = glm::vec4{1, 1, 1, 1};
     sceneUniformData->metal_rough_factors = glm::vec4{1, 0.5, 0, 0};
 
@@ -379,11 +397,12 @@ void RGEngine::imGuiAddParams()
         ImGui::SliderFloat("SSAO strength", &sceneData.ssaoParams.z, 0.0f, 3.0f);
         ImGui::SliderFloat("Ambient intensity", &sceneData.ssaoParams.w, 0.0f, 3.0f);
         ImGui::ColorEdit3("Sky", &sceneData.ambientColor.x);
+        ImGui::SliderFloat("Emissive", &sceneData.debugParams.y, 0.0f, 4.0f);
     }
 
     if (ImGui::CollapsingHeader("Debug view", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        static const char *modes[] = {"Off", "Albedo", "Normal", "SSAO", "Shadow", "Cascade", "Roughness", "Metallic", "Position", "Shadow atlas"};
+        static const char *modes[] = {"Off", "Albedo", "Normal", "SSAO", "Shadow", "Cascade", "Roughness", "Metallic", "Emissive", "Shadow atlas"};
         int mode = int(sceneData.debugParams.x);
         if (ImGui::Combo("Mode", &mode, modes, IM_ARRAYSIZE(modes)))
         {
@@ -398,6 +417,9 @@ void RGEngine::imGuiAddParams()
     {
         ImGui::Checkbox("FXAA", &postFeature->settings.fxaa);
         ImGui::SliderFloat("Exposure", &postFeature->settings.exposure, 0.05f, 8.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+        ImGui::SliderFloat("Bloom", &postFeature->settings.bloomIntensity, 0.0f, 2.0f);
+        ImGui::SliderFloat("Bloom threshold", &postFeature->settings.bloomThreshold, 0.0f, 10.0f);
+        ImGui::SliderFloat("Bloom radius", &postFeature->settings.bloomRadius, 0.25f, 4.0f);
     }
 
     if (ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen))

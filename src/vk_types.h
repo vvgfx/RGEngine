@@ -25,11 +25,12 @@
 // Represents a single image in the GPU
 struct AllocatedImage
 {
-    VkImage image;
-    VkImageView imageView;
-    VmaAllocation allocation;
-    VkExtent3D imageExtent;
-    VkFormat imageFormat;
+    // default-initialised so callers can test for "unset" rather than reading indeterminate handles
+    VkImage image = VK_NULL_HANDLE;
+    VkImageView imageView = VK_NULL_HANDLE;
+    VmaAllocation allocation = nullptr;
+    VkExtent3D imageExtent{};
+    VkFormat imageFormat = VK_FORMAT_UNDEFINED;
 };
 
 // represents a single buffer in the GPU

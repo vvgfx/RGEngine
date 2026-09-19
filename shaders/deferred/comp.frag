@@ -154,8 +154,14 @@ void main()
 
     vec3 position = positionSample.xyz;
     vec3 normal = normalize(texture(inNormal, inUV).xyz);
-    vec3 albedo = texture(inAlbedo, inUV).xyz;
-    vec2 metallicRoughness = texture(inMetalllicRoughness, inUV).xy;
+    vec4 albedoSample = texture(inAlbedo, inUV);
+    vec4 mrSample = texture(inMetalllicRoughness, inUV);
+
+    vec3 albedo = albedoSample.xyz;
+    vec2 metallicRoughness = mrSample.xy;
+
+    // unpack emissive from the spare channels (see mrt.frag)
+    vec3 emissive = vec3(albedoSample.w, mrSample.z, mrSample.w) * sceneData.debugParams.y;
 
     float metallic = metallicRoughness.x;
     float roughness = metallicRoughness.y;
@@ -234,7 +240,7 @@ void main()
         else if (debugMode == 7)
             dbg = vec3(metallic);
         else if (debugMode == 8)
-            dbg = fract(abs(position) * 0.1);
+            dbg = emissive;
         else
             // raw shadow atlas, all four cascades. Black = cleared (no caster), grey/white = depth.
             dbg = vec3(texture(shadowAtlasRaw, inUV).r);
@@ -249,5 +255,6 @@ void main()
     // compared to a probe field, but it is occluded by AO and costs nothing.
     vec3 ambient = albedo * mix(skyColor(-normal) * 0.35, skyColor(normal), 0.5) * ao * sceneData.ssaoParams.w;
 
-    outFragColor = vec4(ambient + Lo, 1.0);
+    // emissive is added, never lit: it is radiance the surface emits on its own
+    outFragColor = vec4(ambient + Lo + emissive, 1.0);
 }

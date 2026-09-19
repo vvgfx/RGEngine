@@ -7,10 +7,11 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) uniform sampler2D hdrImage;
 layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D outImage;
+layout(set = 0, binding = 2) uniform sampler2D bloomImage;
 
 layout(push_constant) uniform PostPushConstants
 {
-    vec4 params; // x = exposure, y = FXAA enabled, z = passthrough (debug views)
+    vec4 params; // x = exposure, y = FXAA enabled, z = passthrough (debug views), w = bloom intensity
 }
 pc;
 
@@ -24,6 +25,10 @@ vec3 resolve(vec2 uv)
     {
         return hdr;
     }
+
+    // Bloom is added in linear HDR, before the tonemapper. Adding it afterwards would double-clip
+    // the halo and wash the colour out of it.
+    hdr += textureLod(bloomImage, uv, 0.0).rgb * pc.params.w;
 
     return pow(ACESFilm(hdr * pc.params.x), vec3(1.0 / 2.2));
 }

@@ -60,7 +60,11 @@ void main()
     // convert to linear space.
     textureColor = pow(textureColor, vec3(2.2));
 
-    outAlbedo = vec4(textureColor, 1.0f);
+    // Emissive is packed into the three unused G-buffer channels rather than adding a fifth
+    // attachment: it never participates in lighting, so it only needs to survive to the composite.
+    vec3 emissive = texture(emissiveTex, inUV).rgb * materialData.extra1.rgb;
+
+    outAlbedo = vec4(textureColor, emissive.r);
 
     float metallic;
     float roughness;
@@ -81,6 +85,6 @@ void main()
 
     outMetalllicRoughness.x = metallic;
     outMetalllicRoughness.y = clamp(roughness, 0.03f, 1.0f);
-    outMetalllicRoughness.z = 0.0f;
-    outMetalllicRoughness.w = 0.0f;
+    outMetalllicRoughness.z = emissive.g;
+    outMetalllicRoughness.w = emissive.b;
 }

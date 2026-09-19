@@ -101,10 +101,10 @@ struct GPUSceneData
     glm::mat4 view;
     glm::mat4 proj;
     glm::mat4 viewproj;
-    glm::vec4 ambientColor;
-    glm::vec4 sunlightDirection; // w for sun power
-    glm::vec4 sunlightColor;
-    glm::vec4 cameraPos;
+    glm::vec4 ambientColor{0.10f, 0.20f, 0.40f, 1.f}; // sky tint; editable from the UI
+    glm::vec4 sunlightDirection{0.f, 1.f, 0.5f, 1.f};  // w for sun power
+    glm::vec4 sunlightColor{1.f};
+    glm::vec4 cameraPos{};
 
     // used to rebuild world-space view rays for the skybox; appended so existing offsets are unchanged.
     glm::mat4 invViewproj;
@@ -112,8 +112,8 @@ struct GPUSceneData
     // x = SSAO sample count, y = SSAO radius, z = SSAO strength, w = ambient intensity
     glm::vec4 ssaoParams{16.f, 2.5f, 1.2f, 1.f};
 
-    // x = debug view mode (0 = off); see DebugMode in comp.frag
-    glm::vec4 debugParams{0.f};
+    // x = debug view mode (0 = off), y = emissive intensity
+    glm::vec4 debugParams{0.f, 1.f, 0.f, 0.f};
 };
 
 // GPU lighting data required for punctual lights from GLTF.

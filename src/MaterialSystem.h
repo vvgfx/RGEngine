@@ -27,12 +27,16 @@ struct MaterialSystem
     // All this data is written into a descriptor set. It is not stored on the CPU after loading.
     struct MaterialResources
     {
+        // Any slot left unset falls back to an engine default inside write_material, so callers
+        // only have to fill in what the material actually has.
         AllocatedImage colorImage;
-        VkSampler colorSampler;
+        VkSampler colorSampler = VK_NULL_HANDLE;
         AllocatedImage metalRoughImage;
-        VkSampler metalRoughSampler;
+        VkSampler metalRoughSampler = VK_NULL_HANDLE;
         AllocatedImage normalImage;
-        VkSampler normalSampler;
+        VkSampler normalSampler = VK_NULL_HANDLE;
+        AllocatedImage emissiveImage;
+        VkSampler emissiveSampler = VK_NULL_HANDLE;
         VkBuffer dataBuffer;
         uint32_t dataBufferOffset;
         glm::vec4 colorFactors{1.0f};
