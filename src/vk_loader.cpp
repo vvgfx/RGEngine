@@ -33,7 +33,8 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
     std::shared_ptr<sgraph::Scene> scene = std::make_shared<sgraph::Scene>();
     sgraph::Scene &file = *scene.get();
 
-    fastgltf::Parser parser(fastgltf::Extensions::KHR_lights_punctual | fastgltf::Extensions::KHR_materials_pbrSpecularGlossiness);
+    fastgltf::Parser parser(fastgltf::Extensions::KHR_lights_punctual | fastgltf::Extensions::KHR_materials_pbrSpecularGlossiness |
+                            fastgltf::Extensions::MSFT_texture_dds);
 
     constexpr auto gltfOptions =
         fastgltf::Options::DontRequireValidAssetMember | fastgltf::Options::AllowDouble | fastgltf::Options::LoadExternalBuffers;
@@ -142,9 +143,31 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
 
     GPUResourceAllocator &gpuResourceAllocator = GPUResourceAllocator::Instance();
 
-    // load all textures
-    for (fastgltf::Image &image : gltf.images)
+    // Work out which images any texture actually resolves to before loading anything. With
+    // MSFT_texture_dds the document lists both a PNG and a DDS per texture, and Bistro ships only
+    // the DDS -- so loading blindly means 343 file opens that fail, log, and burn a slot on an
+    // error image. Mirrors the DDS preference in bindTexture below; the two must agree.
+    std::vector<bool> imageNeeded(gltf.images.size(), false);
+    for (const fastgltf::Texture &tex : gltf.textures)
     {
+        const fastgltf::Optional<std::size_t> &index = tex.ddsImageIndex.has_value() ? tex.ddsImageIndex : tex.imageIndex;
+        if (index.has_value() && index.value() < imageNeeded.size())
+        {
+            imageNeeded[index.value()] = true;
+        }
+    }
+
+    // images is indexed by glTF image index, so skipped entries still need a slot: keep it dense.
+    for (size_t i = 0; i < gltf.images.size(); i++)
+    {
+        fastgltf::Image &image = gltf.images[i];
+
+        if (!imageNeeded[i])
+        {
+            images.push_back(engine.GetErrorImage());
+            continue;
+        }
+
         std::optional<AllocatedImage> img = load_image(gltf, image, path.parent_path());
 
         if (img.has_value())
@@ -215,11 +238,15 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
         auto bindTexture = [&](size_t textureIndex, AllocatedImage &outImage, VkSampler &outSampler)
         {
             const fastgltf::Texture &tex = gltf.textures[textureIndex];
-            if (!tex.imageIndex.has_value())
+
+            // MSFT_texture_dds textures carry both: source is a PNG fallback, the extension names
+            // the DDS that is actually on disk. Prefer the DDS, but fall back so plain glTFs work.
+            const fastgltf::Optional<std::size_t> &index = tex.ddsImageIndex.has_value() ? tex.ddsImageIndex : tex.imageIndex;
+            if (!index.has_value())
             {
                 return;
             }
-            outImage = images[tex.imageIndex.value()];
+            outImage = images[index.value()];
             outSampler = tex.samplerIndex.has_value() ? file.samplers[tex.samplerIndex.value()] : engine.GetDefaultSampler();
         };
 
@@ -585,28 +612,13 @@ std::optional<AllocatedImage> load_image(fastgltf::Asset &asset, fastgltf::Image
                     fsPath = uriPath;
                 }
 
-                // MSFT_texture_dds assets name a .png source but may only ship the .dds beside it.
                 if (!std::filesystem::exists(fsPath))
                 {
-                    std::filesystem::path ddsPath = fsPath;
-                    ddsPath.replace_extension(".dds");
-
-                    if (std::filesystem::exists(ddsPath))
-                    {
-                        if (auto dds = load_dds(ddsPath))
-                        {
-                            newImage = *dds;
-                            return;
-                        }
-                        fmt::println("load_dds failed: {}", ddsPath.string());
-                        return;
-                    }
-
-                    fmt::println("texture missing: {} (and no .dds beside it)", fsPath.string());
+                    fmt::println("texture missing: {}", fsPath.string());
                     return;
                 }
 
-                // an explicitly-referenced .dds still needs the block loader, not stbi
+                // BC7 is block compressed, so stbi cannot touch it
                 if (fsPath.extension() == ".dds" || fsPath.extension() == ".DDS")
                 {
                     if (auto dds = load_dds(fsPath))
