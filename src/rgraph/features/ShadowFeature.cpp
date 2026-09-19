@@ -4,7 +4,9 @@
 #include "vk_initializers.h"
 #include "vk_pipelines.h"
 #include <algorithm>
+#include <cmath>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/norm.hpp>
 
 // defined in DeferredRenderingFeature.cpp
 bool is_visible(const RenderObject &obj, const glm::mat4 &viewproj);
@@ -49,10 +51,17 @@ rgraph::ShadowFeature::ShadowFeature(VkDevice device, DeletionQueue &delQueue, D
                                     .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE};
     VK_CHECK(vkCreateSampler(device, &samplerInfo, nullptr, &shadowSampler));
 
+    // same image, no comparison: lets the debug view read raw depth
+    samplerInfo.compareEnable = VK_FALSE;
+    samplerInfo.magFilter = VK_FILTER_NEAREST;
+    samplerInfo.minFilter = VK_FILTER_NEAREST;
+    VK_CHECK(vkCreateSampler(device, &samplerInfo, nullptr, &rawSampler));
+
     {
         DescriptorLayoutBuilder builder;
         builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-        builder.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        builder.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // comparison sampler
+        builder.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // raw depth, debug only
         shadowLayout = builder.build(device, VK_SHADER_STAGE_FRAGMENT_BIT);
     }
 
@@ -91,6 +100,7 @@ rgraph::ShadowFeature::ShadowFeature(VkDevice device, DeletionQueue &delQueue, D
             vkDestroyPipelineLayout(device, depthPipeline.layout, nullptr);
             vkDestroyDescriptorSetLayout(device, shadowLayout, nullptr);
             vkDestroySampler(device, shadowSampler, nullptr);
+            vkDestroySampler(device, rawSampler, nullptr);
             vkDestroyImageView(device, shadowAtlas.imageView, nullptr);
             GPUResourceAllocator::Instance().destroy_image(shadowAtlas.image, shadowAtlas.allocation);
         });
@@ -125,27 +135,40 @@ void rgraph::ShadowFeature::computeCascades()
         splits[i] = settings.cascadeSplitLambda * log + (1.0f - settings.cascadeSplitLambda) * uniform;
     }
 
-    const glm::mat4 invViewProj = glm::inverse(sceneData.viewproj);
+    // Build slice corners directly from the camera basis and FOV rather than unprojecting the NDC
+    // cube. Unprojecting ties this to the projection's near/far, which are 0.1 and 100000 here, so
+    // interpolating by a ratio derived from maxDistance overshot by ~1000x.
+    const glm::mat4 invView = glm::inverse(sceneData.view);
+    const glm::vec3 camPos = glm::vec3(invView[3]);
+    const glm::vec3 camRight = glm::normalize(glm::vec3(invView[0]));
+    const glm::vec3 camUp = glm::normalize(glm::vec3(invView[1]));
+    const glm::vec3 camFwd = -glm::normalize(glm::vec3(invView[2]));
+
+    // recover FOV and aspect from the projection so this needs no extra plumbing
+    const float tanHalfV = 1.0f / std::abs(sceneData.proj[1][1]);
+    const float aspect = std::abs(sceneData.proj[1][1]) / std::abs(sceneData.proj[0][0]);
+
     float lastSplit = nearClip;
 
     for (uint32_t i = 0; i < CASCADE_COUNT; i++)
     {
-        // Unproject the NDC cube, then pull the slice this cascade covers.
-        glm::vec3 corners[8] = {{-1, 1, 0}, {1, 1, 0}, {1, -1, 0}, {-1, -1, 0}, {-1, 1, 1}, {1, 1, 1}, {1, -1, 1}, {-1, -1, 1}};
-        for (glm::vec3 &c : corners)
-        {
-            glm::vec4 inv = invViewProj * glm::vec4(c, 1.0f);
-            c = glm::vec3(inv) / inv.w;
-        }
+        const float sliceNear = lastSplit;
+        const float sliceFar = splits[i];
 
-        const float nearRatio = (lastSplit - nearClip) / range;
-        const float farRatio = (splits[i] - nearClip) / range;
-        for (uint32_t c = 0; c < 4; c++)
-        {
-            glm::vec3 ray = corners[c + 4] - corners[c];
-            corners[c + 4] = corners[c] + ray * farRatio;
-            corners[c] = corners[c] + ray * nearRatio;
-        }
+        const float hNear = sliceNear * tanHalfV;
+        const float wNear = hNear * aspect;
+        const float hFar = sliceFar * tanHalfV;
+        const float wFar = hFar * aspect;
+
+        const glm::vec3 centreNear = camPos + camFwd * sliceNear;
+        const glm::vec3 centreFar = camPos + camFwd * sliceFar;
+
+        const glm::vec3 corners[8] = {
+            centreNear + camUp * hNear - camRight * wNear, centreNear + camUp * hNear + camRight * wNear,
+            centreNear - camUp * hNear - camRight * wNear, centreNear - camUp * hNear + camRight * wNear,
+            centreFar + camUp * hFar - camRight * wFar,    centreFar + camUp * hFar + camRight * wFar,
+            centreFar - camUp * hFar - camRight * wFar,    centreFar - camUp * hFar + camRight * wFar,
+        };
 
         glm::vec3 centre(0.0f);
         for (const glm::vec3 &c : corners)
@@ -179,6 +202,7 @@ void rgraph::ShadowFeature::computeCascades()
 
         shadowData.cascadeViewProj[i] = lightProj * lightView;
         shadowData.cascadeSplits[i] = splits[i];
+        cascadeSphere[i] = glm::vec4(centre, radius);
 
         if (i == 0)
         {
@@ -187,6 +211,19 @@ void rgraph::ShadowFeature::computeCascades()
         }
 
         lastSplit = splits[i];
+    }
+
+    static float loggedRadius = -1.0f;
+    if (std::abs(cascadeSphere[0].w - loggedRadius) > 0.5f)
+    {
+        loggedRadius = cascadeSphere[0].w;
+        fmt::println("Shadow: sunDir {:.2f} {:.2f} {:.2f}", sunDir.x, sunDir.y, sunDir.z);
+        for (uint32_t i = 0; i < CASCADE_COUNT; i++)
+        {
+            fmt::println("  cascade {}: split {:.2f}, centre {:.1f} {:.1f} {:.1f}, radius {:.2f}", i, shadowData.cascadeSplits[i],
+                         cascadeSphere[i].x, cascadeSphere[i].y, cascadeSphere[i].z, cascadeSphere[i].w);
+        }
+        fmt::println("  cascade0 texel world size: {:.4f}", shadowData.params.x);
     }
 
     shadowData.params.y = settings.pcfRadius;
@@ -226,6 +263,7 @@ void rgraph::ShadowFeature::renderPass(PassExecution &passExec)
     DescriptorWriter writer;
     writer.write_buffer(0, buffer.buffer, sizeof(ShadowDataGPU), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     writer.write_image(1, shadowAtlas.imageView, shadowSampler, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.write_image(2, shadowAtlas.imageView, rawSampler, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.update_set(passExec._device, frameSet);
 
     if (!settings.enabled)
@@ -251,8 +289,19 @@ void rgraph::ShadowFeature::renderPass(PassExecution &passExec)
 
         for (const RenderObject &obj : drawContext.OpaqueSurfaces)
         {
-            // Without this every cascade redraws the whole scene: 4 x 2906 draws. Each cascade only
-            // covers a slice of the view frustum, so most objects fall outside it.
+            // Without this every cascade redraws the whole scene: 4 x 2906 draws. A sphere test
+            // first, because the full 8-corner projection is far more expensive and this rejects most.
+            const glm::vec3 objCentre = glm::vec3(obj.modelMatrix * glm::vec4(obj.bounds.origin, 1.0f));
+            const glm::vec3 scale{glm::length(glm::vec3(obj.modelMatrix[0])), glm::length(glm::vec3(obj.modelMatrix[1])),
+                                  glm::length(glm::vec3(obj.modelMatrix[2]))};
+            const float objRadius = obj.bounds.sphereRadius * glm::max(scale.x, glm::max(scale.y, scale.z));
+
+            const float reach = cascadeSphere[c].w + objRadius;
+            if (glm::length2(objCentre - glm::vec3(cascadeSphere[c])) > reach * reach)
+            {
+                continue;
+            }
+
             if (!is_visible(obj, shadowData.cascadeViewProj[c]))
             {
                 continue;

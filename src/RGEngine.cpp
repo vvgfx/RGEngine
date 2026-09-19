@@ -383,12 +383,15 @@ void RGEngine::imGuiAddParams()
 
     if (ImGui::CollapsingHeader("Debug view", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        static const char *modes[] = {"Off", "Albedo", "Normal", "SSAO", "Shadow", "Cascade", "Roughness", "Metallic", "Position"};
+        static const char *modes[] = {"Off", "Albedo", "Normal", "SSAO", "Shadow", "Cascade", "Roughness", "Metallic", "Position", "Shadow atlas"};
         int mode = int(sceneData.debugParams.x);
         if (ImGui::Combo("Mode", &mode, modes, IM_ARRAYSIZE(modes)))
         {
             sceneData.debugParams.x = float(mode);
         }
+
+        // debug views bypass the tonemapper (and FXAA) so their values stay readable
+        postFeature->settings.passthrough = mode != 0;
     }
 
     if (ImGui::CollapsingHeader("Post", ImGuiTreeNodeFlags_DefaultOpen))

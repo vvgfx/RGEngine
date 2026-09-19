@@ -233,8 +233,11 @@ void main()
             dbg = vec3(roughness);
         else if (debugMode == 7)
             dbg = vec3(metallic);
-        else
+        else if (debugMode == 8)
             dbg = fract(abs(position) * 0.1);
+        else
+            // raw shadow atlas, all four cascades. Black = cleared (no caster), grey/white = depth.
+            dbg = vec3(texture(shadowAtlasRaw, inUV).r);
 
         // the post pass still tonemaps this, which is fine: the mapping stays monotonic and these
         // views only need to be readable, not colour-accurate

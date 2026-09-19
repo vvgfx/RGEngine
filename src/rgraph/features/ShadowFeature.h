@@ -59,6 +59,7 @@ namespace rgraph
 
         AllocatedImage shadowAtlas;
         VkSampler shadowSampler = VK_NULL_HANDLE;
+        VkSampler rawSampler = VK_NULL_HANDLE; // non-comparison, for the atlas debug view
 
         VkDescriptorSetLayout shadowLayout = VK_NULL_HANDLE;
         VkDescriptorSet frameSet = VK_NULL_HANDLE;
@@ -66,6 +67,7 @@ namespace rgraph
         MaterialPipeline depthPipeline{};
 
         ShadowDataGPU shadowData{};
-        glm::vec2 cascadeOffset[CASCADE_COUNT];
+        // world-space bounding sphere per cascade (xyz = centre, w = radius), for cheap culling
+        glm::vec4 cascadeSphere[CASCADE_COUNT];
     };
 } // namespace rgraph

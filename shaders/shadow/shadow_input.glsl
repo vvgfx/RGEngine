@@ -12,6 +12,7 @@ layout(set = SHADOW_SET, binding = 0) uniform ShadowData
 shadowData;
 
 layout(set = SHADOW_SET, binding = 1) uniform sampler2DShadow shadowAtlas;
+layout(set = SHADOW_SET, binding = 2) uniform sampler2D shadowAtlasRaw;
 
 /// Cascades are packed 2x2 in one atlas; this maps a cascade-local UV into it.
 vec2 cascadeAtlasUV(vec2 uv, int cascade)

@@ -9,6 +9,9 @@ namespace rgraph
     {
         bool fxaa = true;
         float exposure = 1.0f;
+
+        // set while a debug view is active: skip exposure, tonemap and gamma
+        bool passthrough = false;
     };
 
     /**

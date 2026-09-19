@@ -10,15 +10,22 @@ layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D outImage;
 
 layout(push_constant) uniform PostPushConstants
 {
-    vec4 params; // x = exposure, y = FXAA enabled
+    vec4 params; // x = exposure, y = FXAA enabled, z = passthrough (debug views)
 }
 pc;
 
 /// Linear HDR -> tonemapped, gamma-encoded LDR. FXAA needs this applied before it measures luma.
 vec3 resolve(vec2 uv)
 {
-    vec3 hdr = textureLod(hdrImage, uv, 0.0).rgb * pc.params.x;
-    return pow(ACESFilm(hdr), vec3(1.0 / 2.2));
+    vec3 hdr = textureLod(hdrImage, uv, 0.0).rgb;
+
+    // debug views carry 0-1 data that must not be tonemapped or it becomes unreadable
+    if (pc.params.z > 0.5)
+    {
+        return hdr;
+    }
+
+    return pow(ACESFilm(hdr * pc.params.x), vec3(1.0 / 2.2));
 }
 
 float luma(vec3 c)

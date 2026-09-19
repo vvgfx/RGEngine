@@ -85,7 +85,8 @@ void rgraph::PostProcessFeature::Register(rgraph::Rendergraph *builder)
 
 void rgraph::PostProcessFeature::run(PassExecution &passExec)
 {
-    PushConstants push{glm::vec4(settings.exposure, settings.fxaa ? 1.0f : 0.0f, 0.0f, 0.0f)};
+    PushConstants push{glm::vec4(settings.exposure, settings.fxaa && !settings.passthrough ? 1.0f : 0.0f,
+                                 settings.passthrough ? 1.0f : 0.0f, 0.0f)};
 
     vkCmdBindPipeline(passExec.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
     vkCmdBindDescriptorSets(passExec.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
