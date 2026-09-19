@@ -11,11 +11,13 @@ namespace rgraph
      * @brief An implementation of IFeature that does deferred rendering
      *
      */
+    class DDGIFeature;
+
     class DeferredRenderingFeature : public IFeature
     {
       public:
         DeferredRenderingFeature(DrawContext &drawContext, VkDevice _device, GPUSceneData &gpuSceneData, VkDescriptorSetLayout gpuSceneLayout,
-                                 MaterialSystemCreateInfo &materialSystemCreateInfo, DeletionQueue &delQueue);
+                                 MaterialSystemCreateInfo &materialSystemCreateInfo, DeletionQueue &delQueue, DDGIFeature *ddgiFeature);
 
         void Register(Rendergraph *builder) override;
 
@@ -65,5 +67,8 @@ namespace rgraph
         GPUSceneData &gpuSceneData;
 
         VkSampler defaultSampler;
+
+        // supplies set 3 of the composite pipeline (probe atlases + volume constants)
+        DDGIFeature *ddgiFeature;
     };
 } // namespace rgraph

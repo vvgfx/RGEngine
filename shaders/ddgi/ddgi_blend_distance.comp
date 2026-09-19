@@ -1,0 +1,105 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+#define DDGI_SET 0
+#include "ddgi_common.glsl"
+
+// 16x16 covers a 14x14 interior plus the 1-texel border.
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = DDGI_SET, binding = 1, rgba16f) uniform readonly image2D probeRayData;
+layout(set = DDGI_SET, binding = 3, rg16f) uniform image2D probeDistance;
+
+layout(push_constant) uniform BlendPushConstants
+{
+    mat4 rayRotation;
+    vec4 flags;
+}
+pc;
+
+shared vec2 tile[DDGI_DIST_TILE][DDGI_DIST_TILE];
+
+void main()
+{
+    int probeIndex = int(gl_WorkGroupID.x);
+    ivec2 local = ivec2(gl_LocalInvocationID.xy);
+    ivec2 tileOrigin = ddgiTileOrigin(probeIndex, DDGI_DIST_TILE);
+
+    const int N = DDGI_DIST_INTERIOR;
+    bool interior = local.x >= 1 && local.x <= N && local.y >= 1 && local.y <= N;
+
+    if (interior)
+    {
+        vec3 texelDir = ddgiTexelDirection(local - 1, N);
+
+        vec2 sum = vec2(0.0);
+        float weightSum = 0.0;
+
+        for (int r = 0; r < DDGI_RAYS; r++)
+        {
+            vec4 data = imageLoad(probeRayData, ivec2(r, probeIndex));
+            vec3 rayDir = normalize(mat3(pc.rayRotation) * sphericalFibonacci(float(r), float(DDGI_RAYS)));
+
+            // A much sharper lobe than irradiance: depth must stay crisp or the Chebyshev test
+            // blurs across occluders and the leaking it exists to prevent comes back.
+            float w = pow(max(dot(texelDir, rayDir), 0.0), DDGI_DEPTH_SHARPNESS);
+
+            if (w > 1e-4)
+            {
+                float d = min(abs(data.w), DDGI_MAX_DISTANCE);
+                sum += vec2(d, d * d) * w;
+                weightSum += w;
+            }
+        }
+
+        vec2 result = weightSum > 0.0 ? sum / weightSum : vec2(DDGI_MAX_DISTANCE, DDGI_MAX_DISTANCE * DDGI_MAX_DISTANCE);
+
+        vec2 previous = imageLoad(probeDistance, tileOrigin + local).rg;
+        vec2 blended = mix(result, previous, DDGI_HYSTERESIS);
+
+        tile[local.y][local.x] = blended;
+        imageStore(probeDistance, tileOrigin + local, vec4(blended, 0.0, 0.0));
+    }
+
+    barrier();
+
+    if (!interior)
+    {
+        ivec2 src;
+        if (local.x == 0 && local.y == 0)
+        {
+            src = ivec2(N, N);
+        }
+        else if (local.x == N + 1 && local.y == 0)
+        {
+            src = ivec2(1, N);
+        }
+        else if (local.x == 0 && local.y == N + 1)
+        {
+            src = ivec2(N, 1);
+        }
+        else if (local.x == N + 1 && local.y == N + 1)
+        {
+            src = ivec2(1, 1);
+        }
+        else if (local.y == 0)
+        {
+            src = ivec2(N + 1 - local.x, 1);
+        }
+        else if (local.y == N + 1)
+        {
+            src = ivec2(N + 1 - local.x, N);
+        }
+        else if (local.x == 0)
+        {
+            src = ivec2(1, N + 1 - local.y);
+        }
+        else
+        {
+            src = ivec2(N, N + 1 - local.y);
+        }
+
+        imageStore(probeDistance, tileOrigin + local, vec4(tile[src.y][src.x], 0.0, 0.0));
+    }
+}

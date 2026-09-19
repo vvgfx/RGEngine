@@ -1,5 +1,5 @@
 #include "rgraph/features/DeferredRenderingFeature.h"
-#include "DeferredRenderingFeature.h"
+#include "DDGIFeature.h"
 #include "GPUResourceAllocator.h"
 #include "rgraph/Rendergraph.h"
 #include "vk_engine.h"
@@ -12,8 +12,8 @@ bool is_visible(const RenderObject &obj, const glm::mat4 &viewproj);
 
 rgraph::DeferredRenderingFeature::DeferredRenderingFeature(DrawContext &drawContext, VkDevice _device, GPUSceneData &gpuSceneData,
                                                            VkDescriptorSetLayout gpuSceneLayout, MaterialSystemCreateInfo &materialSystemCreateInfo,
-                                                           DeletionQueue &delQueue)
-    : drawContext(drawContext), gpuSceneData(gpuSceneData)
+                                                           DeletionQueue &delQueue, DDGIFeature *ddgiFeature)
+    : drawContext(drawContext), gpuSceneData(gpuSceneData), ddgiFeature(ddgiFeature)
 {
     _gpuSceneDataDescriptorLayout = gpuSceneLayout;
 
@@ -259,8 +259,8 @@ void rgraph::DeferredRenderingFeature::compositePass(rgraph::PassExecution &pass
 
     vkCmdBindPipeline(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline.pipeline);
 
-    VkDescriptorSet sets[] = {compDescriptor, sceneDescriptor, lightDescriptor};
-    vkCmdBindDescriptorSets(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline.layout, 0, 3, sets, 0, nullptr);
+    VkDescriptorSet sets[] = {compDescriptor, sceneDescriptor, lightDescriptor, ddgiFeature->GetFrameSet()};
+    vkCmdBindDescriptorSets(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline.layout, 0, 4, sets, 0, nullptr);
 
     VkViewport viewport = {};
     viewport.x = 0;
@@ -454,9 +454,10 @@ void rgraph::DeferredRenderingFeature::createPipelines(MaterialSystemCreateInfo 
         fmt::println("Error when building the triangle fragment shader module\n");
     }
 
-    VkDescriptorSetLayout compLayouts[] = {compDescriptorSetLayout, materialSystemCreateInfo._gpuSceneDataDescriptorLayout, lightDescriptorSetLayout};
+    VkDescriptorSetLayout compLayouts[] = {compDescriptorSetLayout, materialSystemCreateInfo._gpuSceneDataDescriptorLayout, lightDescriptorSetLayout,
+                                           ddgiFeature->GetSetLayout()};
 
-    meshLayoutInfo.setLayoutCount = 3;
+    meshLayoutInfo.setLayoutCount = 4;
     meshLayoutInfo.pSetLayouts = compLayouts;
     meshLayoutInfo.pPushConstantRanges = nullptr;
     meshLayoutInfo.pushConstantRangeCount = 0;

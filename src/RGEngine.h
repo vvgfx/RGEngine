@@ -3,6 +3,7 @@
 #include "AccelStructure.h"
 #include "rgraph/Rendergraph.h"
 #include "rgraph/features/ComputeBackgroundFeature.h"
+#include "rgraph/features/DDGIFeature.h"
 #include "rgraph/features/DeferredRenderingFeature.h"
 #include "rgraph/features/PBRShadingFeature.h"
 #include <memory>
@@ -38,6 +39,8 @@ class RGEngine : public VulkanEngine
     std::shared_ptr<rgraph::ComputeBackgroundFeature> computeFeature;
     std::shared_ptr<rgraph::PBRShadingFeature> PBRFeature;
     std::shared_ptr<rgraph::DeferredRenderingFeature> deferredFeature;
+    std::shared_ptr<rgraph::DDGIFeature> ddgiFeature;
+    std::shared_ptr<rgraph::DDGIDebugFeature> ddgiDebugFeature;
 
     // AllocatedImages for MSAA. TODO: Move these out later.
     AllocatedImage msaaColor;

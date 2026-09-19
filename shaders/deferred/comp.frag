@@ -3,6 +3,11 @@
 #include "../PBR_helpers.glsl"
 #include "comp_input_structures.glsl"
 
+// the DDGI descriptor set layout is shared with the compute passes, where it binds at set 0
+#define DDGI_SET 3
+#include "../ddgi/ddgi_common.glsl"
+#include "../ddgi/ddgi_sample.glsl"
+
 layout(location = 0) in vec2 inUV;
 
 layout(location = 0) out vec4 outFragColor;
@@ -62,7 +67,9 @@ void main()
         Lo += (kD * albedo / PI + specular) * radiance * nDotL;
     }
 
-    vec3 ambient = vec3(0.03f) * albedo * ao;
+    // DDGISampleIrradiance returns average incident radiance, so albedo multiplies it directly.
+    // misc.w is the runtime toggle; falling back to the old constant keeps the scene lit when off.
+    vec3 ambient = (ddgi.misc.w > 0.5) ? albedo * DDGISampleIrradiance(position, normal, viewVec) * ao : vec3(0.03f) * albedo * ao;
 
     vec3 color = ambient + Lo;
 

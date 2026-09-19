@@ -41,6 +41,8 @@ add_executable (engine
   BindlessTextures.cpp
   AccelStructure.h
   AccelStructure.cpp
+  rgraph/features/DDGIFeature.h
+  rgraph/features/DDGIFeature.cpp
 )
 
 set_property(TARGET engine PROPERTY CXX_STANDARD 20)

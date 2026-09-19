@@ -1,0 +1,15 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : require
+
+#define DDGI_SET 0
+#extension GL_EXT_ray_query : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+#include "ddgi_common.glsl"
+#include "ddgi_sample.glsl"
+#include "trace_rayquery.glsl"
+#include "ddgi_lighting.glsl"
+#include "ddgi_trace_body.glsl"

@@ -1,0 +1,116 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+#define DDGI_SET 0
+#include "ddgi_common.glsl"
+
+// One workgroup per probe, one thread per tile texel (interior + border).
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = DDGI_SET, binding = 1, rgba16f) uniform readonly image2D probeRayData;
+layout(set = DDGI_SET, binding = 2, rgba16f) uniform image2D probeIrradiance;
+
+// Must carry the same rotation the trace pass used, or texel and ray directions disagree.
+layout(push_constant) uniform BlendPushConstants
+{
+    mat4 rayRotation;
+    vec4 flags;
+}
+pc;
+
+// Staged so border texels can be copied in this same dispatch, saving a pass and a barrier.
+shared vec3 tile[DDGI_IRR_TILE][DDGI_IRR_TILE];
+
+void main()
+{
+    int probeIndex = int(gl_WorkGroupID.x);
+    ivec2 local = ivec2(gl_LocalInvocationID.xy);
+    ivec2 tileOrigin = ddgiTileOrigin(probeIndex, DDGI_IRR_TILE);
+
+    const int N = DDGI_IRR_INTERIOR;
+    bool interior = local.x >= 1 && local.x <= N && local.y >= 1 && local.y <= N;
+
+    if (interior)
+    {
+        vec3 texelDir = ddgiTexelDirection(local - 1, N);
+
+        vec3 sum = vec3(0.0);
+        float weightSum = 0.0;
+
+        for (int r = 0; r < DDGI_RAYS; r++)
+        {
+            vec4 data = imageLoad(probeRayData, ivec2(r, probeIndex));
+
+            // negative distance == backface hit; ignore so buried probes degrade gracefully
+            if (data.w < 0.0)
+            {
+                continue;
+            }
+
+            vec3 rayDir = normalize(mat3(pc.rayRotation) * sphericalFibonacci(float(r), float(DDGI_RAYS)));
+            float w = max(dot(texelDir, rayDir), 0.0);
+
+            if (w > 1e-4)
+            {
+                sum += data.rgb * w;
+                weightSum += w;
+            }
+        }
+
+        vec3 result = weightSum > 0.0 ? sum / weightSum : vec3(0.0);
+
+        // Store perceptually encoded: fp16 otherwise wastes precision on bright values that
+        // diffuse lighting never reaches.
+        result = pow(result, vec3(1.0 / (DDGI_GAMMA * 0.5)));
+
+        vec3 previous = imageLoad(probeIrradiance, tileOrigin + local).rgb;
+        vec3 blended = mix(result, previous, DDGI_HYSTERESIS);
+
+        tile[local.y][local.x] = blended;
+        imageStore(probeIrradiance, tileOrigin + local, vec4(blended, 1.0));
+    }
+
+    barrier();
+
+    if (!interior)
+    {
+        // Border texels mirror the interior so a bilinear tap at a tile edge wraps correctly across
+        // the octahedral seam instead of bleeding into the neighbouring probe.
+        ivec2 src;
+        if (local.x == 0 && local.y == 0)
+        {
+            src = ivec2(N, N);
+        }
+        else if (local.x == N + 1 && local.y == 0)
+        {
+            src = ivec2(1, N);
+        }
+        else if (local.x == 0 && local.y == N + 1)
+        {
+            src = ivec2(N, 1);
+        }
+        else if (local.x == N + 1 && local.y == N + 1)
+        {
+            src = ivec2(1, 1);
+        }
+        else if (local.y == 0)
+        {
+            src = ivec2(N + 1 - local.x, 1);
+        }
+        else if (local.y == N + 1)
+        {
+            src = ivec2(N + 1 - local.x, N);
+        }
+        else if (local.x == 0)
+        {
+            src = ivec2(1, N + 1 - local.y);
+        }
+        else
+        {
+            src = ivec2(N, N + 1 - local.y);
+        }
+
+        imageStore(probeIrradiance, tileOrigin + local, vec4(tile[src.y][src.x], 1.0));
+    }
+}

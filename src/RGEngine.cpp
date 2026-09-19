@@ -30,12 +30,14 @@ void RGEngine::init()
 
     structureFile.value()->name = "outpost";
 
-    // mainDrawContext is rebuilt every frame, so take a private snapshot to build the static acceleration structure from.
+    // mainDrawContext is rebuilt every frame, so take a private snapshot for the acceleration
+    // structure and for fitting the DDGI probe volume to the scene bounds.
+    DrawContext sceneSnapshot;
+    loadedScenes["outpost"]->Draw(glm::mat4{1.f}, sceneSnapshot);
+
     if (_rayQuerySupported)
     {
-        DrawContext asContext;
-        loadedScenes["outpost"]->Draw(glm::mat4{1.f}, asContext);
-        accelStructure.Build(this, _device, asContext, _mainDeletionQueue);
+        accelStructure.Build(this, _device, sceneSnapshot, _mainDeletionQueue);
     }
 
     rgraphInstance.Init(_device, _drawImage.imageExtent, _instance);
@@ -46,8 +48,14 @@ void RGEngine::init()
     PBRFeature = std::make_shared<rgraph::PBRShadingFeature>(mainDrawContext, _device, msCreateInfo, sceneData, _gpuSceneDataDescriptorLayout,
                                                              _mainDeletionQueue);
 
+    // must precede the deferred feature: its composite pipeline layout needs the DDGI set layout.
+    ddgiFeature = std::make_shared<rgraph::DDGIFeature>(this, _device, accelStructure, sceneSnapshot, mainDrawContext, sceneData,
+                                                        _gpuSceneDataDescriptorLayout, _drawImage.imageFormat, _depthImage.imageFormat,
+                                                        _mainDeletionQueue);
+    ddgiDebugFeature = std::make_shared<rgraph::DDGIDebugFeature>(ddgiFeature.get());
+
     deferredFeature = std::make_shared<rgraph::DeferredRenderingFeature>(mainDrawContext, _device, sceneData, _gpuSceneDataDescriptorLayout,
-                                                                         msCreateInfo, _mainDeletionQueue);
+                                                                         msCreateInfo, _mainDeletionQueue, ddgiFeature.get());
     // create MSAA images. TODO: move these out somewhere later.
     createMsaaImages();
 
@@ -58,7 +66,12 @@ void RGEngine::init()
 
     rgraphInstance.AddFeature(computeFeature);
     // builder.AddFeature(PBRFeature);
+    // registration order is execution order: probes must be updated before the composite samples them.
+    rgraphInstance.AddFeature(ddgiFeature);
     rgraphInstance.AddFeature(deferredFeature);
+
+    // after the deferred feature so the probe overlay draws on top of the composited image
+    rgraphInstance.AddFeature(ddgiDebugFeature);
 
     rgraphInstance.SetTimestampPeriod(timestampPeriod);
 }
@@ -347,5 +360,29 @@ void RGEngine::imGuiAddParams()
             ImGui::PopID();
         }
     }
+
+    ImGui::Separator();
+
+    // The graph rebuilds every frame, so each of these takes effect on the next frame with no
+    // invalidation path or pipeline rebuild.
+    if (ImGui::CollapsingHeader("DDGI", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        rgraph::DDGISettings &s = ddgiFeature->settings;
+
+        if (!_rayQuerySupported)
+        {
+            ImGui::TextWrapped("Ray query unavailable on this device.");
+        }
+
+        ImGui::Checkbox("Enabled", &s.enabled);
+        ImGui::Checkbox("Shadow rays", &s.shadowRays);
+        ImGui::Checkbox("Show probes", &s.showProbes);
+        ImGui::SliderFloat("Hysteresis", &s.hysteresis, 0.80f, 0.995f, "%.3f");
+        ImGui::SliderFloat("Normal bias", &s.normalBias, 0.0f, 1.0f);
+        ImGui::SliderFloat("View bias", &s.viewBias, 0.0f, 2.0f);
+        ImGui::SliderFloat("Depth sharpness", &s.depthSharpness, 1.0f, 100.0f);
+        ImGui::ColorEdit3("Sky", &s.skyColor.x);
+    }
+
     ImGui::End();
 }
