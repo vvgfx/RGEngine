@@ -168,6 +168,9 @@ struct DrawContext
     // extra plumbing.
     glm::vec3 sunDir{0.f, 1.f, 0.f};
     bool sunSeeded = false;
+
+    // Preetham atmospheric turbidity: 2 is a clear day, 10 is heavy haze.
+    float skyTurbidity = 3.0f;
 };
 
 // }}} SCENEGRAPHS end -----------------------

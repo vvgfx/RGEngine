@@ -230,6 +230,14 @@ void RGEngine::applySunDirection()
         const glm::vec3 up = glm::cross(dir, right);
 
         light.transform = glm::mat4(glm::vec4(right, 0.f), glm::vec4(up, 0.f), glm::vec4(dir, 0.f), light.transform[3]);
+
+        // Publish to sceneData so the sky shader can reach it. This field used to be vestigial --
+        // only the disabled forward path read it -- and it is the only route the sun has into
+        // ssr.comp and the transparent pass, which never see the light buffer.
+        // .w is the sun's strength, which the sky needs as well as its direction: a high sun at
+        // 0.02 intensity is a night scene, and a Preetham midday sky over it looks broken.
+        sceneData.sunlightDirection = glm::vec4(dir, mainDrawContext.sunIntensityScale);
+        sceneData.debugParams.w = mainDrawContext.skyTurbidity;
     }
 }
 
@@ -576,6 +584,7 @@ void RGEngine::imGuiAddParams()
         ImGui::TextDisabled("%.2f %.2f %.2f", mainDrawContext.sunDir.x, mainDrawContext.sunDir.y, mainDrawContext.sunDir.z);
         ImGui::EndGroup();
 
+        ImGui::SliderFloat("Sky turbidity", &mainDrawContext.skyTurbidity, 2.0f, 10.0f);
         ImGui::SliderFloat("Camera speed", &mainCamera.speed, 0.5f, 500.0f, "%.1f u/s", ImGuiSliderFlags_Logarithmic);
         ImGui::TextDisabled("press P to dump camera pos/pitch/yaw to stdout");
         ImGui::Text("lights: %zu   opaque: %zu", mainDrawContext.lights.size(), mainDrawContext.OpaqueSurfaces.size());

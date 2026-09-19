@@ -1,5 +1,7 @@
 #version 450
 
+#extension GL_GOOGLE_include_directive : require
+
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) uniform sampler2D litImage; // composited scene colour
@@ -22,6 +24,8 @@ layout(set = 0, binding = 5) uniform SceneData
     vec4 debugParams;
 }
 sceneData;
+
+#include "../lighting/sky.glsl"
 
 layout(push_constant) uniform SSRPush
 {
@@ -180,6 +184,14 @@ void main()
         // on a semi-rough surface produces hit/miss blotching rather than a believable reflection.
         hitMask *= 1.0 - smoothstep(0.0, maxRoughness, roughness);
     }
+
+    // A ray that leaves the scene should reflect the sky, not nothing. Without this anything
+    // facing upward reflected black, which is why SSR read as barely present. skyRadiance omits
+    // the sun disc deliberately: a mirror ray grazing it would return an enormous value.
+    vec3 skyRefl = skyRadiance(R, sceneData.sunlightDirection.xyz, sceneData.debugParams.w,
+                               sceneData.ambientColor.rgb, sceneData.sunlightDirection.w);
+    hitColor = mix(skyRefl, hitColor, hitMask);
+    hitMask = 1.0;
 
     vec3 F0 = mix(vec3(0.04), lit, metallic);
     vec3 fresnel = fresnelSchlick(max(dot(N, -V), 0.0), F0);

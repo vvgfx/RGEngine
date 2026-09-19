@@ -14,7 +14,8 @@ Scene: `assets/bistro_glb/bistro.glb` — Bistro exterior, metallic-roughness, 1
 | Cascaded shadows: 4 cascades, 4096² atlas, sphere fit, texel snapping | `ShadowFeature` |
 | Point-light cube shadows, 6 faces per light, 12 casters | `LocalShadowFeature` |
 | Tiled light culling: 16×16 tiles, per-tile depth bounds | `LightCullFeature` |
-| Procedural sky gradient, also sampled as ambient source | `comp.frag` |
+| Preetham analytic sky, blended to a tinted night gradient | `lighting/sky.glsl` |
+| One sky feeds background, ambient, transparent and SSR | `lighting/sky.glsl` |
 | SSAO from position/normal G-buffer | `comp.frag` |
 | Screen-space reflections, roughness-gated | `SSRFeature` |
 | Transparent forward pass, same tile light list | `DeferredRenderingFeature` |
@@ -76,3 +77,43 @@ Point shadows went from **+6.0 ms GPU / +3.4 ms CPU** to enabled by default:
 | Transparent pass emits linear HDR, never tonemaps | It was tonemapping an already-tonemapped target |
 | Vertex normals use inverse-transpose model matrix | Raw matrix skewed them under non-uniform scale |
 | Camera speed 500 → 10, far plane comment corrected | Bistro is metres, ~130 units, not centimetres |
+| Transparent ambient was flat `vec3(0.03)`, now the sky | Glass and foliage ignored the sky entirely |
+| SSR returns sky on a miss, not black | Upward-facing surfaces reflected nothing |
+| Sky day/night blend keyed on sun strength, not just elevation | A high sun at 0.02 intensity is still night |
+
+## Sky — how and why
+
+One shared `shaders/lighting/sky.glsl`, called by the background, the ambient term, the transparent
+pass and the SSR miss path, so sky and derived lighting cannot disagree.
+
+**No skybox mesh and no separate pass.** It is a branch in the composite, taken where
+`positionSample.w < 0.5` — the G-buffer's "geometry landed here" flag. That is a depth test using
+data already fetched, so it beats a cube at the far plane: no draw call, no vertex data, and sky
+pixels early-out of the whole light loop. The usual objection to screen-space sky, that you shade
+every pixel, does not apply when the pass runs anyway.
+
+**Daylight is Preetham**: a Perez distribution fitted to turbidity, evaluated in xyY, converted to
+linear sRGB, plus a 0.53° sun disc. Preetham rather than Hosek-Wilkie because HW needs a ~1500-float
+fitted coefficient dataset where Preetham derives its coefficients from turbidity with linear fits.
+
+**Below the horizon it blends to the old three-band tinted gradient.** Preetham is a daylight model
+— its zenith luminance goes negative once the sun crosses the horizon — and the gradient is what
+the lamps and point shadows were balanced against.
+
+Known weak spot: Preetham's sunsets, and low sun angles generally — see the Zotti & Wilkie review
+below. Hosek-Wilkie is the drop-in upgrade if that starts to matter; Hillaire is the step beyond,
+and needs precomputed LUTs and extra passes.
+
+**Coefficient provenance.** The 15 Perez distribution coefficients and the zenith luminance formula
+in `sky.glsl` were checked line by line against Appendix A.2 of the paper and match exactly. The
+`chi` expression and the two zenith *chromaticity* polynomial matrices (`xz`, `yz`) are typeset as
+matrix equations that do not survive text extraction, so those remain unverified against the
+primary source — worth re-checking against a printed copy if the sky's hue ever looks off.
+
+### References
+
+- [Preetham, Shirley & Smits 1999, *A Practical Analytic Model for Daylight*](https://courses.cs.duke.edu/cps124/spring08/assign/07_papers/p91-preetham.pdf) — coefficients are in Appendix A.2
+- [Zotti & Wilkie 2007, *A Critical Review of the Preetham Skylight Model*](https://www.cg.tuwien.ac.at/research/publications/2007/zotti-2007-wscg/zotti-2007-wscg-paper.pdf) — where and why it breaks down
+- [Hosek & Wilkie 2012, *An Analytic Model for Full Spectral Sky-Dome Radiance*](https://cgg.mff.cuni.cz/projects/SkylightModelling/)
+- [Hillaire 2020, *A Scalable and Production Ready Sky and Atmosphere Rendering Technique*](https://onlinelibrary.wiley.com/doi/abs/10.1111/cgf.14050)
+- [State-of-the-art skybox rendering discussion](https://gamedev.net/forums/topic/706994-state-of-the-art-skybox-rendering/)

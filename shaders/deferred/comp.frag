@@ -13,24 +13,11 @@
 #define LIGHT_GRID_SET 5
 #include "../lighting/light_grid.glsl"
 
+#include "../lighting/sky.glsl"
+
 layout(location = 0) in vec2 inUV;
 
 layout(location = 0) out vec4 outFragColor;
-
-/// Sky used both as the visible background and as the ambient source, so they cannot disagree.
-vec3 skyColor(vec3 dir)
-{
-    vec3 zenith = sceneData.ambientColor.rgb;
-    vec3 horizon = sceneData.ambientColor.rgb * 2.2 + vec3(0.05);
-    vec3 ground = sceneData.ambientColor.rgb * 0.25;
-
-    float d = clamp(dir.y, -1.0, 1.0);
-    if (d < 0.0)
-    {
-        return mix(horizon, ground, clamp(-d * 4.0, 0.0, 1.0));
-    }
-    return mix(horizon, zenith, clamp(pow(d, 0.45), 0.0, 1.0));
-}
 
 /// World-space ray through this pixel, rebuilt from the inverse view-projection.
 vec3 viewRay(vec2 uv)
@@ -165,7 +152,8 @@ void main()
     // The G-buffer clears position to 0 and mrt.frag writes w = 1, so w marks "geometry here".
     if (positionSample.w < 0.5)
     {
-        outFragColor = vec4(skyColor(viewRay(inUV)), 1.0);
+        outFragColor = vec4(skyWithSun(viewRay(inUV), sceneData.sunlightDirection.xyz, sceneData.debugParams.w,
+                                      sceneData.ambientColor.rgb, sceneData.sunlightDirection.w), 1.0);
         return;
     }
 
@@ -283,7 +271,8 @@ void main()
 
     // Hemispheric sky ambient: the upper hemisphere sees sky, the lower sees bounced ground. Coarse
     // compared to a probe field, but it is occluded by AO and costs nothing.
-    vec3 ambient = albedo * mix(skyColor(-normal) * 0.35, skyColor(normal), 0.5) * ao * sceneData.ssaoParams.w;
+    vec3 ambient = albedo * skyAmbient(normal, sceneData.sunlightDirection.xyz, sceneData.debugParams.w,
+                                       sceneData.ambientColor.rgb, sceneData.sunlightDirection.w) * ao * sceneData.ssaoParams.w;
 
     // emissive is added, never lit: it is radiance the surface emits on its own
     outFragColor = vec4(ambient + Lo + emissive, 1.0);

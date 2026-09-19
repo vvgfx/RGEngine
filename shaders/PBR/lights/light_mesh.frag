@@ -7,6 +7,8 @@
 #define LIGHT_GRID_SET 3
 #include "../../lighting/light_grid.glsl"
 
+#include "../../lighting/sky.glsl"
+
 layout(location = 0) in vec3 inNormal;
 layout(location = 1) in vec3 inColor;
 layout(location = 2) in vec2 inUV;
@@ -86,7 +88,10 @@ void main()
         SHADE_LIGHT(lightVec, radiance)
     }
 
-    vec3 ambient = vec3(0.03f) * albedo * ao;
+    // Was a flat vec3(0.03): glass and foliage were lit by a different sky from everything else,
+    // and the Sky colour did not affect them at all.
+    vec3 ambient = albedo * skyAmbient(normalize(inNormal), sceneData.sunlightDirection.xyz, sceneData.debugParams.w,
+                                       sceneData.ambientColor.rgb, sceneData.sunlightDirection.w) * ao;
 
     // linear HDR: the post pass owns tonemapping and gamma
     outFragColor = vec4(ambient + Lo, 1.0);
