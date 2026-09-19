@@ -64,24 +64,12 @@ void main()
     // attachment: it never participates in lighting, so it only needs to survive to the composite.
     vec3 emissive = texture(emissiveTex, inUV).rgb * materialData.extra1.rgb;
 
+    // One material model: glTF packs roughness in G and metallic in B.
+    vec2 metalRough = texture(metalRoughTex, inUV).bg;
+    float metallic = metalRough.x * materialData.metal_rough_factors.x;
+    float roughness = metalRough.y * materialData.metal_rough_factors.y;
+
     outAlbedo = vec4(textureColor, emissive.r);
-
-    float metallic;
-    float roughness;
-
-    if (materialData.extra0.y > 0.5)
-    {
-        // spec/gloss: RGB is specular colour, A is glossiness
-        vec4 specGloss = texture(metalRoughTex, inUV);
-        metallic = 0.0;
-        roughness = 1.0 - specGloss.a * (1.0 - materialData.metal_rough_factors.y);
-    }
-    else
-    {
-        vec2 metalRough = texture(metalRoughTex, inUV).bg;
-        metallic = metalRough.x * materialData.metal_rough_factors.x;
-        roughness = metalRough.y * materialData.metal_rough_factors.y;
-    }
 
     outMetalllicRoughness.x = metallic;
     outMetalllicRoughness.y = clamp(roughness, 0.03f, 1.0f);

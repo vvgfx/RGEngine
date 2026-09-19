@@ -25,7 +25,7 @@ void RGEngine::init()
 
     VulkanEngine::init();
 
-    std::string structurePath = {"../assets/niagara_bistro/bistro.gltf"};
+    std::string structurePath = {"../assets/bistro_glb/bistro.glb"};
 
     // this is called after the pipelines are initialzed.
     auto structureFile = loadGltf(structurePath);
@@ -107,6 +107,12 @@ void RGEngine::init()
     // lightCullFeature is not added here: its pass is declared by deferredFeature, between the
     // geometry pass that fills the G-buffer and the composite that reads the grid.
     rgraphInstance.AddFeature(deferredFeature);
+
+    // Between the deferred passes and SSR: it draws into drawImage, which SSR then reads, so the
+    // overlay survives into the final image.
+    lightDebugFeature = std::make_shared<rgraph::LightDebugFeature>(_device, _mainDeletionQueue, mainDrawContext, sceneData,
+                                                                    _drawImage.imageFormat, _depthImage.imageFormat);
+    rgraphInstance.AddFeature(lightDebugFeature);
 
     // after the deferred passes: reflections need the lit image to reflect
     rgraphInstance.AddFeature(ssrFeature);
@@ -506,6 +512,16 @@ void RGEngine::imGuiAddParams()
         if (ImGui::Checkbox("Bypass light cull", &bypassCull))
         {
             sceneData.debugParams.z = bypassCull ? 1.0f : 0.0f;
+        }
+
+        // Wireframe spheres at each light's position and range. Depth-tested, so a sphere that
+        // vanishes into a wall is a light buried in geometry.
+        rgraph::LightDebugSettings &ld = lightDebugFeature->settings;
+        ImGui::Checkbox("Show light spheres", &ld.enabled);
+        if (ld.enabled)
+        {
+            ImGui::Checkbox("Include directional", &ld.showDirectional);
+            ImGui::SliderFloat("Sphere radius scale", &ld.radiusScale, 0.1f, 5.0f);
         }
     }
 

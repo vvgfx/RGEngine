@@ -51,6 +51,7 @@ add_executable (engine
   rgraph/features/SSRFeature.cpp
   rgraph/features/ShadowFeature.h
   rgraph/features/ShadowFeature.cpp
+  rgraph/features/LightDebugFeature.cpp
 )
 
 set_property(TARGET engine PROPERTY CXX_STANDARD 20)

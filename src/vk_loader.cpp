@@ -33,7 +33,10 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
     std::shared_ptr<sgraph::Scene> scene = std::make_shared<sgraph::Scene>();
     sgraph::Scene &file = *scene.get();
 
-    fastgltf::Parser parser(fastgltf::Extensions::KHR_lights_punctual | fastgltf::Extensions::KHR_materials_pbrSpecularGlossiness |
+    // MSFT_texture_dds must be enabled or fastgltf leaves Texture::ddsImageIndex empty and a
+    // DDS-backed glTF resolves every texture to a PNG fallback that may not ship. Kept so the old
+    // zeux asset still loads. emissive_strength matters here: Bistro's emissive factors reach 100.
+    fastgltf::Parser parser(fastgltf::Extensions::KHR_lights_punctual | fastgltf::Extensions::KHR_materials_emissive_strength |
                             fastgltf::Extensions::MSFT_texture_dds);
 
     constexpr auto gltfOptions =
@@ -285,31 +288,6 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
         constants.extra[1] = glm::vec4(emissive, 0.0f);
         sceneMaterialConstants[data_index] = constants;
 
-        // Most of Bistro uses the archived spec/gloss model rather than metallic-roughness. Map it
-        // across approximately: diffuse becomes base colour, and roughness is the inverse of gloss.
-        if (mat.specularGlossiness != nullptr)
-        {
-            const auto &sg = *mat.specularGlossiness;
-
-            constants.colorFactors = glm::vec4(sg.diffuseFactor[0], sg.diffuseFactor[1], sg.diffuseFactor[2], sg.diffuseFactor[3]);
-            constants.metal_rough_factors.x = 0.0f;
-            constants.metal_rough_factors.y = 1.0f - float(sg.glossinessFactor);
-            sceneMaterialConstants[data_index] = constants;
-            materialResources.colorFactors = constants.colorFactors;
-
-            if (sg.diffuseTexture.has_value())
-            {
-                bindTexture(sg.diffuseTexture.value().textureIndex, materialResources.colorImage, materialResources.colorSampler);
-            }
-            if (sg.specularGlossinessTexture.has_value())
-            {
-                bindTexture(sg.specularGlossinessTexture.value().textureIndex, materialResources.metalRoughImage,
-                            materialResources.metalRoughSampler);
-                // flag the swizzle: this texture is RGB specular + A glossiness, not B/G metal-rough
-                constants.extra[0].y = 1.0f;
-                sceneMaterialConstants[data_index] = constants;
-            }
-        }
         // build material
         newMat->data = engine.GetMaterialSystem().write_material(device, passType, materialResources, file.descriptorPool);
 
@@ -639,7 +617,7 @@ std::optional<AllocatedImage> load_image(fastgltf::Asset &asset, fastgltf::Image
                     imagesize.height = height;
                     imagesize.depth = 1;
 
-                    newImage = gpuResourceAllocator.create_image(data, imagesize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                    newImage = gpuResourceAllocator.create_image(data, imagesize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
 
                     stbi_image_free(data);
                 }
@@ -655,7 +633,7 @@ std::optional<AllocatedImage> load_image(fastgltf::Asset &asset, fastgltf::Image
                     imagesize.height = height;
                     imagesize.depth = 1;
 
-                    newImage = gpuResourceAllocator.create_image(data, imagesize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                    newImage = gpuResourceAllocator.create_image(data, imagesize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
 
                     stbi_image_free(data);
                 }
@@ -684,7 +662,7 @@ std::optional<AllocatedImage> load_image(fastgltf::Asset &asset, fastgltf::Image
                                 imagesize.depth = 1;
 
                                 newImage =
-                                    gpuResourceAllocator.create_image(data, imagesize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                                    gpuResourceAllocator.create_image(data, imagesize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
 
                                 stbi_image_free(data);
                             }
@@ -702,7 +680,7 @@ std::optional<AllocatedImage> load_image(fastgltf::Asset &asset, fastgltf::Image
                                 imagesize.depth = 1;
 
                                 newImage =
-                                    gpuResourceAllocator.create_image(data, imagesize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                                    gpuResourceAllocator.create_image(data, imagesize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
 
                                 stbi_image_free(data);
                             }
@@ -739,7 +717,7 @@ std::optional<std::shared_ptr<AllocatedImage>> loadImage(std::string fileName)
 
         AllocatedImage newImage{};
 
-        newImage = GPUResourceAllocator::Instance().create_image(data, imageSize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+        newImage = GPUResourceAllocator::Instance().create_image(data, imageSize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
         stbi_image_free(data);
         return std::make_shared<AllocatedImage>(newImage);
     }

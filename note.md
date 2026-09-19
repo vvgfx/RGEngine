@@ -1,79 +1,78 @@
 # Features
 
-Deferred renderer on a rendergraph that rebuilds every frame. Linear HDR throughout; tonemap and
-gamma happen once, at the end.
+Deferred renderer on a rendergraph rebuilt every frame. Linear HDR throughout; tonemap and gamma
+happen once, at the end. Reverse-Z everywhere: `glm::perspective` takes near/far swapped, depth
+clears to 0, compares `GREATER_OR_EQUAL`.
+
+Scene: `assets/bistro_glb/bistro.glb` — Bistro exterior, metallic-roughness, 110 generated lights.
+
+## Rendering
 
 | Feature | Where |
 |---|---|
 | G-buffer + composite deferred shading | `DeferredRenderingFeature` |
-| Cascaded shadow maps — 4 cascades, 2×2 in a 4096² atlas, bounding-sphere fit, texel snapping | `ShadowFeature` |
-| Point-light cube shadows — 6 faces per light into a shared atlas, 12 casters by budget | `LocalShadowFeature` |
-| Tiled light culling — 16×16 tiles, per-tile depth bounds, sphere test | `LightCullFeature` |
-| Procedural sky — analytic zenith/horizon/ground gradient from a single tint, no cubemap or HDRI. Also sampled along the normal as the ambient source, so background and ambient cannot desync | `comp.frag` |
-| SSAO | `shaders/deferred/comp.frag` |
-| Screen-space reflections | `SSRFeature` |
-| Transparent forward pass — blended geometry shaded after the composite, on the same tile light list | `DeferredRenderingFeature` |
-| Emissive + bloom, tonemap, FXAA | `PostProcessFeature` |
-| Debug views — albedo, normal, SSAO, shadow, cascade, roughness, metallic, emissive, atlas | `comp.frag` |
+| Cascaded shadows: 4 cascades, 4096² atlas, sphere fit, texel snapping | `ShadowFeature` |
+| Point-light cube shadows, 6 faces per light, 12 casters | `LocalShadowFeature` |
+| Tiled light culling: 16×16 tiles, per-tile depth bounds | `LightCullFeature` |
+| Procedural sky gradient, also sampled as ambient source | `comp.frag` |
+| SSAO from position/normal G-buffer | `comp.frag` |
+| Screen-space reflections, roughness-gated | `SSRFeature` |
+| Transparent forward pass, same tile light list | `DeferredRenderingFeature` |
+| Emissive, bloom, ACES tonemap, FXAA | `PostProcessFeature` |
 
-## Materials
+## Materials — metallic-roughness only, no second path
 
 | Feature | Where |
 |---|---|
-| BC7 DDS loading with the full mip chain | `dds_loader` |
-| Trilinear + 16× anisotropic filtering | `vk_engine.cpp`, `vk_loader.cpp` |
-| Normal mapping via a screen-space cotangent frame (Schueler) — no vertex tangents, so `Vertex` stays 48 B and the BLAS stride is untouched | `mrt.frag` |
-| Alpha masking — per-material cutoff packed into the spare `MaterialConstants::extra0` | `mrt.frag` |
-| Spec-gloss materials mapped to metallic-roughness, per-texel gloss from the alpha channel | `vk_loader.cpp`, `mrt.frag` |
-| Emissive textures and factors | `MaterialSystem` |
+| glTF metal-rough: roughness in G, metallic in B | `mrt.frag` |
+| Normal mapping via screen-space cotangent frame (Schueler) | `mrt.frag` |
+| Alpha masking, per-material cutoff in `extra0.x` | `mrt.frag` |
+| Emissive textures plus `KHR_materials_emissive_strength` | `MaterialSystem`, `vk_loader.cpp` |
+| Trilinear plus 16× anisotropic filtering, mips on every path | `vk_engine.cpp`, `vk_loader.cpp` |
+| `MSFT_texture_dds` honoured via `Texture::ddsImageIndex` | `vk_loader.cpp` |
+| BC7 DDS loader with full mip chain | `dds_loader` |
 
 ## Tooling
 
 | Feature | Where |
 |---|---|
-| Sun direction gizmo — drag a 3D arrow to aim the sun. Driven in **view space**, so the sphere stands for the screen: drag up and the sun rises in shot. Seeded from the glTF on frame 1 | `RGEngine.cpp`, `third_party/imGuIZMO` |
+| Light debug: wireframe spheres at each light's range | `LightDebugFeature` |
+| Sun gizmo driven in view space, seeded from glTF | `RGEngine.cpp`, `third_party/imGuIZMO` |
 | Per-pass GPU/CPU timings, draw and triangle counts | `Rendergraph`, ImGui panel |
-| Press **P** to dump camera position, pitch and yaw as paste-ready source | `camera.cpp` |
+| Press P to dump camera position, pitch, yaw | `camera.cpp` |
+| Debug views: albedo, normal, SSAO, shadow, cascade, metallic | `comp.frag` |
+| Generate lights from emissive geometry, vertex-clustered | `tools/lights_from_emissive.py` |
+| Transplant lights between scenes, measured XZ alignment | `tools/transplant_lights.py` |
 
-The sun is the glTF **directional light**, not `sceneData.sunlightDirection` — only the disabled
-forward path reads that. `applySunDirection()` rewrites the light's node basis after the scene
-graph refills `DrawContext::lights`, so shading, cascades and culling all see one direction.
+Defaults boot into the tuned night look; daylight is one dial.
 
-Startup defaults are the tuned night look (sun at 0.02), so the engine boots into the state the
-lamp and point-shadow work is measured against. Daylight is one dial.
-
-Reverse-Z everywhere: `glm::perspective` is called with near/far swapped, depth clears to 0 and
-compares `GREATER_OR_EQUAL`.
-
-DDGI is implemented but parked — `DDGIFeature`, `AccelStructure` and `disabled_shaders/ddgi` are
-out of the build.
+DDGI is implemented but parked — `DDGIFeature`, `AccelStructure`, `disabled_shaders/ddgi` are out
+of the build.
 
 ## Performance
 
 | Change | Effect |
 |---|---|
-| Tiled light culling — shade only the lights binned to a pixel's tile, not all 97 | Composite and transparent passes stop scaling with scene light count |
-| Per-face cube-shadow culling — a caster inside a lamp's reach still only lands in 1–2 of 6 faces | ~6× fewer shadow draws |
-| Offscreen light rejection — lamps whose whole 2–8 unit reach is off screen get no shadow map | Most of the 96 lamps skipped per frame |
-| Shadow-slot hysteresis — an incumbent must be beaten by 35% before eviction | Stops shadows popping while panning |
-| Read light members individually instead of copying a 96-byte struct per light, plus a squared-distance cull | Transparent forward **9.0 → 1.69 ms** |
-| Bloom bright pass emits only the *excess* over threshold, not the whole colour | Fixed emissives at 40 blowing out neighbours; intensity back to a sane 0.5 |
-| Half-res bloom chain | Bloom is low-frequency; full res bought nothing |
-| Dropped the 8× MSAA colour/depth targets, whose only consumer was the disabled forward path | **~354 MB** of VRAM never written |
+| Tile-binned lights instead of looping all lights per pixel | Shading stops scaling with scene light count |
+| Per-face cube-shadow culling, caster hits 1–2 of 6 | ~6× fewer shadow draws |
+| Reject lights whose whole reach is offscreen | Most lamps skipped per frame |
+| Shadow-slot hysteresis, 35% margin before eviction | Stops shadows popping while panning |
+| Read light members individually, not a 96-byte copy | Transparent forward **9.0 → 1.69 ms** |
+| Bloom emits only the excess over threshold | Fixed emissives blowing out neighbours |
+| Half-res bloom chain | Bloom is low-frequency; full res wasted |
+| Skip images no texture references | 343 dead file opens removed |
+| Dropped unused 8× MSAA targets | **~354 MB** VRAM never written |
 
-Combined, point shadows went from **+6.0 ms GPU / +3.4 ms CPU** to affordable enough to enable by
-default: **10.78 → 8.73 ms GPU, 5.05 → 3.54 ms CPU** at 12 casters.
+Point shadows went from **+6.0 ms GPU / +3.4 ms CPU** to enabled by default:
+**10.78 → 8.73 ms GPU, 5.05 → 3.54 ms CPU** at 12 casters.
 
-### Correctness fixes that were costing frame time
+## Correctness fixes that cost frame time
 
-- Cascade slice corners are built from the camera basis and FOV, not by unprojecting the NDC cube —
-  the latter ties the fit to the 0.1/100000 near/far and made cascade 0's radius **6198** instead
-  of **7.56**.
-- `PipelineBuilder::set_shaders` no longer forces a fragment stage, so depth-only shadow pipelines
-  have none.
-- `BarrierMerger` infers the depth aspect from *any* depth layout, not just `DEPTH_ATTACHMENT` —
-  sampled shadow maps sit in `DEPTH_READ_ONLY`.
-- The transparent pass no longer tonemaps: it emitted ACES + gamma, then blended onto a target the
-  composite had already tonemapped. It now outputs linear HDR like everything else.
-- Vertex normals use the inverse-transpose of the model matrix; the raw matrix skewed them under
-  non-uniform scale.
+| Fix | Why |
+|---|---|
+| Cascade corners from camera basis, not NDC unproject | Cascade 0 radius was **6198** instead of 7.56 |
+| `set_shaders` no longer forces a fragment stage | Depth-only shadow pipelines need none |
+| `BarrierMerger` infers depth aspect from any depth layout | Sampled shadow maps sit in `DEPTH_READ_ONLY` |
+| Transparent pass emits linear HDR, never tonemaps | It was tonemapping an already-tonemapped target |
+| Vertex normals use inverse-transpose model matrix | Raw matrix skewed them under non-uniform scale |
+| Camera speed 500 → 10, far plane comment corrected | Bistro is metres, ~130 units, not centimetres |
