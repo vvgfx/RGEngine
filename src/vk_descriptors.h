@@ -7,7 +7,8 @@
 struct DescriptorLayoutBuilder
 {
     std::vector<VkDescriptorSetLayoutBinding> bindings;
-    void add_binding(uint32_t binding, VkDescriptorType type);
+    // count > 1 declares a descriptor array (bindless texture tables).
+    void add_binding(uint32_t binding, VkDescriptorType type, uint32_t count = 1);
     void clear();
     VkDescriptorSetLayout build(VkDevice device, VkShaderStageFlags shaderStages, void *pNext = nullptr, VkDescriptorSetLayoutCreateFlags flags = 0);
 };
@@ -38,7 +39,7 @@ struct DescriptorAllocatorGrowable
         float ratio;
     };
 
-    void init(VkDevice device, uint32_t initialSets, std::span<PoolSizeRatio> poolRatios);
+    void init(VkDevice device, uint32_t initialSets, std::span<PoolSizeRatio> poolRatios, VkDescriptorPoolCreateFlags flags = 0);
     void clear_pools(VkDevice device);
     void destroy_pools(VkDevice device);
 
@@ -47,6 +48,8 @@ struct DescriptorAllocatorGrowable
   private:
     VkDescriptorPool get_pool(VkDevice device);
     VkDescriptorPool create_pool(VkDevice device, uint32_t setCount, std::span<PoolSizeRatio> poolRatios);
+
+    VkDescriptorPoolCreateFlags poolFlags = 0;
 
     std::vector<PoolSizeRatio> ratios;
     std::vector<VkDescriptorPool> fullPools;
@@ -60,7 +63,7 @@ struct DescriptorWriter
     std::deque<VkDescriptorBufferInfo> bufferInfos;
     std::vector<VkWriteDescriptorSet> writes;
 
-    void write_image(int binding, VkImageView image, VkSampler sampler, VkImageLayout layout, VkDescriptorType type);
+    void write_image(int binding, VkImageView image, VkSampler sampler, VkImageLayout layout, VkDescriptorType type, uint32_t arrayElement = 0);
     void write_buffer(int binding, VkBuffer buffer, size_t size, size_t offset, VkDescriptorType type);
 
     void clear();

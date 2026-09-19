@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AccelStructure.h"
 #include "rgraph/Rendergraph.h"
 #include "rgraph/features/ComputeBackgroundFeature.h"
 #include "rgraph/features/DeferredRenderingFeature.h"
@@ -17,6 +18,8 @@ class RGEngine : public VulkanEngine
   protected:
     // functions
     void init_pipelines() override;
+
+    AccelStructure accelStructure;
 
     void init_default_data() override;
 

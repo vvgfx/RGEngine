@@ -1,11 +1,11 @@
 ﻿#include <span>
 #include <vk_descriptors.h>
 
-void DescriptorLayoutBuilder::add_binding(uint32_t binding, VkDescriptorType type)
+void DescriptorLayoutBuilder::add_binding(uint32_t binding, VkDescriptorType type, uint32_t count)
 {
     VkDescriptorSetLayoutBinding newbind{};
     newbind.binding = binding;
-    newbind.descriptorCount = 1;
+    newbind.descriptorCount = count;
     newbind.descriptorType = type;
 
     bindings.push_back(newbind);
@@ -111,7 +111,7 @@ VkDescriptorPool DescriptorAllocatorGrowable::create_pool(VkDevice device, uint3
 
     VkDescriptorPoolCreateInfo pool_info = {};
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_info.flags = 0;
+    pool_info.flags = poolFlags;
     pool_info.maxSets = setCount;
     pool_info.poolSizeCount = (uint32_t)poolSizes.size();
     pool_info.pPoolSizes = poolSizes.data();
@@ -121,8 +121,9 @@ VkDescriptorPool DescriptorAllocatorGrowable::create_pool(VkDevice device, uint3
     return newPool;
 }
 
-void DescriptorAllocatorGrowable::init(VkDevice device, uint32_t maxSets, std::span<PoolSizeRatio> poolRatios)
+void DescriptorAllocatorGrowable::init(VkDevice device, uint32_t maxSets, std::span<PoolSizeRatio> poolRatios, VkDescriptorPoolCreateFlags flags)
 {
+    poolFlags = flags;
     ratios.clear();
 
     for (auto r : poolRatios)
@@ -211,13 +212,15 @@ void DescriptorWriter::write_buffer(int binding, VkBuffer buffer, size_t size, s
     writes.push_back(write);
 }
 
-void DescriptorWriter::write_image(int binding, VkImageView image, VkSampler sampler, VkImageLayout layout, VkDescriptorType type)
+void DescriptorWriter::write_image(int binding, VkImageView image, VkSampler sampler, VkImageLayout layout, VkDescriptorType type,
+                                   uint32_t arrayElement)
 {
     VkDescriptorImageInfo &info = imageInfos.emplace_back(VkDescriptorImageInfo{.sampler = sampler, .imageView = image, .imageLayout = layout});
 
     VkWriteDescriptorSet write = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
 
     write.dstBinding = binding;
+    write.dstArrayElement = arrayElement;
     write.dstSet = VK_NULL_HANDLE; // left empty for now until we need to write it
     write.descriptorCount = 1;
     write.descriptorType = type;

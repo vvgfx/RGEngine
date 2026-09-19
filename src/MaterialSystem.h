@@ -33,6 +33,7 @@ struct MaterialSystem
         VkSampler metalRoughSampler;
         VkBuffer dataBuffer;
         uint32_t dataBufferOffset;
+        glm::vec4 colorFactors{1.0f};
     };
 
     DescriptorWriter writer;

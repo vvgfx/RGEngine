@@ -1,4 +1,5 @@
 ﻿#include "vk_engine.h"
+#include "BindlessTextures.h"
 #include "SDL_events.h"
 #include "SDL_scancode.h"
 #include "fmt/base.h"
@@ -108,8 +109,14 @@ void VulkanEngine::init_vulkan()
     VkPhysicalDeviceVulkan13Features features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, .synchronization2 = true, .dynamicRendering = true};
 
-    VkPhysicalDeviceVulkan12Features features12{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .descriptorIndexing = true, .bufferDeviceAddress = true};
+    // descriptorIndexing is an umbrella bool only; the sub-features below must each be set explicitly.
+    VkPhysicalDeviceVulkan12Features features12{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+                                                .descriptorIndexing = true,
+                                                .shaderSampledImageArrayNonUniformIndexing = true,
+                                                .descriptorBindingPartiallyBound = true,
+                                                .descriptorBindingVariableDescriptorCount = true,
+                                                .runtimeDescriptorArray = true,
+                                                .bufferDeviceAddress = true};
 
     vkb::PhysicalDeviceSelector selector{vkbInst};
 
@@ -122,6 +129,18 @@ void VulkanEngine::init_vulkan()
                                              .add_required_extension("VK_KHR_shader_relaxed_extended_instruction")
                                              .select()
                                              .value();
+
+    // Ray tracing is optional: if absent, DDGI falls back to its voxel tracing backend.
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR asFeatures{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR, .accelerationStructure = true};
+    VkPhysicalDeviceRayQueryFeaturesKHR rqFeatures{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR, .rayQuery = true};
+
+    _rayQuerySupported = PhysicalDevice.enable_extensions_if_present({VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_QUERY_EXTENSION_NAME,
+                                                                      VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME}) &&
+                         PhysicalDevice.enable_extension_features_if_present(asFeatures) &&
+                         PhysicalDevice.enable_extension_features_if_present(rqFeatures);
+
+    fmt::println("Ray query support: {}", _rayQuerySupported ? "yes" : "no (DDGI will use voxel tracing)");
 
     vkb::DeviceBuilder DeviceBuilder{PhysicalDevice};
 
@@ -355,6 +374,9 @@ void VulkanEngine::init_pipelines()
 {
     // compute
     init_background_pipelines();
+
+    // must precede any material write; write_material registers each albedo texture into the table.
+    BindlessTextures::Instance().init(_device, _mainDeletionQueue);
 
     materialSystemInstance.build_descriptors(_device);
     // mesh piplines are no longer used, and the gltf pipelines are built with the rendergraph now.

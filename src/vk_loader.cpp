@@ -189,6 +189,7 @@ std::optional<std::shared_ptr<sgraph::Scene>> loadGltf(std::string_view filePath
         // set the uniform buffer for the material data
         materialResources.dataBuffer = file.materialDataBuffer.buffer;
         materialResources.dataBufferOffset = data_index * sizeof(MaterialSystem::MaterialConstants);
+        materialResources.colorFactors = constants.colorFactors;
         // grab textures from gltf file
         if (mat.pbrData.baseColorTexture.has_value())
         {

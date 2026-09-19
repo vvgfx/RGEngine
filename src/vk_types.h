@@ -61,6 +61,12 @@ struct GPUMeshBuffers
     // GPUPushConstants. We require the address of the vertex buffer because we directly reference it as a pointer in
     // the shader via push constants.
     VkDeviceAddress vertexBufferAddress;
+
+    // needed by ray-query hit shading to pull indices via buffer_reference.
+    VkDeviceAddress indexBufferAddress;
+
+    // BLAS builds need the vertex count as a bound.
+    uint32_t vertexCount = 0;
 };
 
 // push constants for our mesh object draws
@@ -86,4 +92,8 @@ struct MaterialInstance
 {
     VkDescriptorSet materialSet;
     MaterialPass passType;
+
+    // Ray-query hit shading cannot bind materialSet, so it reads these out of the geometry table instead.
+    uint32_t albedoTexIndex = 0;
+    glm::vec4 colorFactor{1.0f};
 };

@@ -1,4 +1,5 @@
 #include "MaterialSystem.h"
+#include "BindlessTextures.h"
 
 void MaterialSystem::build_descriptors(VkDevice device)
 {
@@ -16,6 +17,8 @@ MaterialInstance MaterialSystem::write_material(VkDevice device, MaterialPass pa
 {
     MaterialInstance matData;
     matData.passType = pass;
+    matData.colorFactor = resources.colorFactors;
+    matData.albedoTexIndex = BindlessTextures::Instance().Register(device, resources.colorImage.imageView, resources.colorSampler);
 
     matData.materialSet = descriptorAllocator.allocate(device, materialLayout);
 

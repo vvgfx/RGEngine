@@ -16,6 +16,8 @@ void sgraph::MeshNode::Draw(const glm::mat4 &topMatrix, DrawContext &ctx)
         def.bounds = s.bounds;
         def.modelMatrix = nodeMatrix;
         def.vertexBufferAddress = mesh->meshBuffers.vertexBufferAddress;
+        def.indexBufferAddress = mesh->meshBuffers.indexBufferAddress;
+        def.vertexCount = mesh->meshBuffers.vertexCount;
 
         if (s.material->data.passType == MaterialPass::Transparent)
         {

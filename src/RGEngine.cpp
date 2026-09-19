@@ -30,6 +30,14 @@ void RGEngine::init()
 
     structureFile.value()->name = "outpost";
 
+    // mainDrawContext is rebuilt every frame, so take a private snapshot to build the static acceleration structure from.
+    if (_rayQuerySupported)
+    {
+        DrawContext asContext;
+        loadedScenes["outpost"]->Draw(glm::mat4{1.f}, asContext);
+        accelStructure.Build(this, _device, asContext, _mainDeletionQueue);
+    }
+
     rgraphInstance.Init(_device, _drawImage.imageExtent, _instance);
 
     VkExtent3D extent = {_windowExtent.width, _windowExtent.height, 1};

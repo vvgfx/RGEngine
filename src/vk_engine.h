@@ -129,6 +129,10 @@ struct RenderObject
     Bounds bounds;
     glm::mat4 modelMatrix;
     VkDeviceAddress vertexBufferAddress;
+
+    // acceleration-structure build inputs.
+    VkDeviceAddress indexBufferAddress;
+    uint32_t vertexCount;
 };
 
 struct DrawContext
@@ -153,6 +157,9 @@ class VulkanEngine
     VkDebugUtilsMessengerEXT _debugMessenger;
     VkPhysicalDevice _chosenGPU;
     VkDevice _device;
+
+    // false when VK_KHR_ray_query is unavailable; DDGI then falls back to voxel tracing.
+    bool _rayQuerySupported = false;
     VkSurfaceKHR _surface;
     VkSwapchainKHR _swapchain;
     VkFormat _swapchainImageFormat;
@@ -270,6 +277,16 @@ class VulkanEngine
     VkSampler GetDefaultSampler()
     {
         return _defaultSamplerLinear;
+    }
+
+    VkPhysicalDevice GetPhysicalDevice() const
+    {
+        return _chosenGPU;
+    }
+
+    bool IsRayQuerySupported() const
+    {
+        return _rayQuerySupported;
     }
 
     // scenegraph stuff

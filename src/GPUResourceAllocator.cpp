@@ -142,11 +142,16 @@ GPUMeshBuffers GPUResourceAllocator::uploadMesh(std::span<uint32_t> indices, std
     const size_t indexBufferSize = indices.size() * sizeof(uint32_t);
 
     GPUMeshBuffers newSurface;
+    newSurface.vertexCount = static_cast<uint32_t>(vertices.size());
+
+    // ACCELERATION_STRUCTURE_BUILD_INPUT lets both buffers feed BLAS builds; the index buffer also needs a device
+    // address so ray-query hit shading can pull indices via buffer_reference.
+    constexpr VkBufferUsageFlags asUsage =
+        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
     // create vertex buffer
-    newSurface.vertexBuffer = create_buffer(
-        vertexBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY);
+    newSurface.vertexBuffer =
+        create_buffer(vertexBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | asUsage, VMA_MEMORY_USAGE_GPU_ONLY);
 
     // find the adress of the vertex buffer
     VkBufferDeviceAddressInfo deviceAdressInfo{.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .buffer = newSurface.vertexBuffer.buffer};
@@ -154,7 +159,10 @@ GPUMeshBuffers GPUResourceAllocator::uploadMesh(std::span<uint32_t> indices, std
 
     // create index buffer
     newSurface.indexBuffer =
-        create_buffer(indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        create_buffer(indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | asUsage, VMA_MEMORY_USAGE_GPU_ONLY);
+
+    deviceAdressInfo.buffer = newSurface.indexBuffer.buffer;
+    newSurface.indexBufferAddress = vkGetBufferDeviceAddress(_device, &deviceAdressInfo);
 
     AllocatedBuffer staging = create_buffer(vertexBufferSize + indexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 
