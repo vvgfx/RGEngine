@@ -152,8 +152,7 @@ void main()
     // The G-buffer clears position to 0 and mrt.frag writes w = 1, so w marks "geometry here".
     if (positionSample.w < 0.5)
     {
-        outFragColor = vec4(skyWithSun(viewRay(inUV), sceneData.sunlightDirection.xyz, sceneData.debugParams.w,
-                                      sceneData.ambientColor.rgb, sceneData.sunlightDirection.w), 1.0);
+        outFragColor = vec4(skyEnv(viewRay(inUV), sceneData.sunlightColor.xy, sceneData.ambientColor.rgb), 1.0);
         return;
     }
 
@@ -271,8 +270,7 @@ void main()
 
     // Hemispheric sky ambient: the upper hemisphere sees sky, the lower sees bounced ground. Coarse
     // compared to a probe field, but it is occluded by AO and costs nothing.
-    vec3 ambient = albedo * skyAmbient(normal, sceneData.sunlightDirection.xyz, sceneData.debugParams.w,
-                                       sceneData.ambientColor.rgb, sceneData.sunlightDirection.w) * ao * sceneData.ssaoParams.w;
+    vec3 ambient = albedo * skyEnvAmbient(normal, sceneData.sunlightColor.xy, sceneData.ambientColor.rgb) * ao * sceneData.ssaoParams.w;
 
     // emissive is added, never lit: it is radiance the surface emits on its own
     outFragColor = vec4(ambient + Lo + emissive, 1.0);

@@ -33,10 +33,15 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
   get_filename_component(SPIRV_DIR ${SPIRV} DIRECTORY)
   file(MAKE_DIRECTORY ${SPIRV_DIR})
   message(STATUS ${GLSL})
+  # --depfile makes glslang report the .glsl files each shader #includes, and DEPFILE hands that
+  # to the generator. Without it only the .frag/.vert/.comp is a dependency, so editing a shared
+  # include (sky.glsl, light_grid.glsl, shadow_input.glsl) silently leaves stale SPIR-V behind --
+  # the build reports success and the old shader keeps running.
   add_custom_command(
         OUTPUT ${SPIRV}
-        COMMAND ${GLSL_VALIDATOR} -V --target-env vulkan1.3 -gVS ${GLSL} -o ${SPIRV}
-        DEPENDS ${GLSL})
+        COMMAND ${GLSL_VALIDATOR} -V --target-env vulkan1.3 -gVS ${GLSL} -o ${SPIRV} --depfile ${SPIRV}.d
+        DEPENDS ${GLSL}
+        DEPFILE ${SPIRV}.d)
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach(GLSL)
 

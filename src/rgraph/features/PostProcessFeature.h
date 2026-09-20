@@ -12,7 +12,11 @@ namespace rgraph
         float exposureEV = 0.0f; // stops
 
         float bloomIntensity = 0.5f;
-        float bloomThreshold = 1.5f; // HDR luminance above which light starts to bleed
+        float bloomThreshold = 1.5f;
+
+        /// Ceiling on the bright pass. The blur is narrow, so an extreme value becomes a tight
+        /// blazing fringe rather than a glow -- an HDRI sun reaches 75,000. Standard firefly clamp.
+        float bloomClamp = 8.0f; // HDR luminance above which light starts to bleed
 
         // set while a debug view is active: skip tonemap, gamma and bloom
         bool passthrough = false;

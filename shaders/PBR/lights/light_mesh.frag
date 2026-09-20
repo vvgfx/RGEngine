@@ -90,8 +90,7 @@ void main()
 
     // Was a flat vec3(0.03): glass and foliage were lit by a different sky from everything else,
     // and the Sky colour did not affect them at all.
-    vec3 ambient = albedo * skyAmbient(normalize(inNormal), sceneData.sunlightDirection.xyz, sceneData.debugParams.w,
-                                       sceneData.ambientColor.rgb, sceneData.sunlightDirection.w) * ao;
+    vec3 ambient = albedo * skyEnvAmbient(normalize(inNormal), sceneData.sunlightColor.xy, sceneData.ambientColor.rgb) * ao;
 
     // linear HDR: the post pass owns tonemapping and gamma
     outFragColor = vec4(ambient + Lo, 1.0);

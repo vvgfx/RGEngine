@@ -13,6 +13,8 @@ rgraph::SSRFeature::SSRFeature(VkDevice device, DeletionQueue &delQueue, GPUScen
         builder.add_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // normal
         builder.add_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // metal/rough
         builder.add_binding(5, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);         // scene
+        builder.add_binding(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // sky HDRI
+        builder.add_binding(7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // sky irradiance
         descriptorLayout = builder.build(device, VK_SHADER_STAGE_COMPUTE_BIT);
     }
 
@@ -98,6 +100,10 @@ void rgraph::SSRFeature::run(PassExecution &passExec)
     writer.write_image(4, image("metalrough_gbuf").imageView, sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.write_buffer(5, sceneBuffer.buffer, sizeof(GPUSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    writer.write_image(6, VulkanEngine::Instance()._skyHDRI.imageView, VulkanEngine::Instance()._skyHDRISampler,
+                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.write_image(7, VulkanEngine::Instance()._skyIrradiance.imageView, VulkanEngine::Instance()._skyHDRISampler,
+                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.update_set(passExec._device, set);
 
     PushConstants push{glm::vec4(settings.enabled ? 1.0f : 0.0f, settings.maxRoughness, float(settings.steps), settings.thickness),

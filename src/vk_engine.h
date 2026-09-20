@@ -169,8 +169,10 @@ struct DrawContext
     glm::vec3 sunDir{0.f, 1.f, 0.f};
     bool sunSeeded = false;
 
-    // Preetham atmospheric turbidity: 2 is a clear day, 10 is heavy haze.
-    float skyTurbidity = 3.0f;
+
+    // HDRI environment. Intensity 0 falls back to the analytic sky, so this is also the toggle.
+    float skyHDRIIntensity = 1.0f;
+    float skyHDRIYaw = 0.0f;
 };
 
 // }}} SCENEGRAPHS end -----------------------
@@ -245,6 +247,13 @@ class VulkanEngine
 
     VkSampler _defaultSamplerLinear;
     VkSampler _defaultSamplerNearest;
+
+    // Equirectangular sky. Falls back to the analytic sky when no .hdr is present, so a missing
+    // asset is not fatal. Sampler repeats in u (the map wraps round the horizon) and clamps in v.
+    AllocatedImage _skyHDRI;
+    AllocatedImage _skyIrradiance; ///< SH9-convolved; the diffuse ambient term samples this
+    VkSampler _skyHDRISampler = VK_NULL_HANDLE;
+    bool _skyHDRILoaded = false;
 
     // default materials
     MaterialInstance defaultData;

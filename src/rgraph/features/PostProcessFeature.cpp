@@ -141,7 +141,7 @@ void rgraph::PostProcessFeature::Register(rgraph::Rendergraph *builder)
                 pass.ReadsImage(hdrName, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 pass.WritesImage("bloomA");
             },
-            [&](PassExecution &passExec) { runBloom(passExec, extractPipeline, setExtract, glm::vec4(settings.bloomThreshold, 0, 0, 0)); });
+            [&](PassExecution &passExec) { runBloom(passExec, extractPipeline, setExtract, glm::vec4(settings.bloomThreshold, settings.bloomClamp, 0, 0)); });
 
         builder->AddComputePass(
             "bloom-blur-h",

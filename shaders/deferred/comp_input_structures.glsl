@@ -28,6 +28,10 @@ struct PointLight
     int shadowIndex; // slot in the local shadow atlas, or -1
 };
 
+layout(set = 1, binding = 1) uniform sampler2D skyHDRI;
+layout(set = 1, binding = 2) uniform sampler2D skyIrradiance;
+#define SKY_HDRI_BOUND
+
 layout(set = 2, binding = 0) uniform LightData
 {
     PointLight pointLights[128];

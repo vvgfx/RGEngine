@@ -163,6 +163,10 @@ void rgraph::DeferredRenderingFeature::geometryPass(rgraph::PassExecution &passE
     VkDescriptorSet globalDescriptor = passExec.frameDescriptor->allocate(passExec._device, _gpuSceneDataDescriptorLayout);
     DescriptorWriter writer;
     writer.write_buffer(0, gpuSceneDataBuffer.buffer, sizeof(GPUSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        writer.write_image(1, VulkanEngine::Instance()._skyHDRI.imageView, VulkanEngine::Instance()._skyHDRISampler,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        writer.write_image(2, VulkanEngine::Instance()._skyIrradiance.imageView, VulkanEngine::Instance()._skyHDRISampler,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.update_set(passExec._device, globalDescriptor);
 
     vkCmdBindPipeline(passExec.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, geometryPipeline.pipeline);
@@ -231,6 +235,10 @@ void rgraph::DeferredRenderingFeature::compositePass(rgraph::PassExecution &pass
     {
         DescriptorWriter writer;
         writer.write_buffer(0, gpuSceneDataBuffer.buffer, sizeof(GPUSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        writer.write_image(1, VulkanEngine::Instance()._skyHDRI.imageView, VulkanEngine::Instance()._skyHDRISampler,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        writer.write_image(2, VulkanEngine::Instance()._skyIrradiance.imageView, VulkanEngine::Instance()._skyHDRISampler,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
         writer.update_set(passExec._device, sceneDescriptor);
     }
 
@@ -328,6 +336,10 @@ void rgraph::DeferredRenderingFeature::transparentPass(rgraph::PassExecution &pa
     {
         DescriptorWriter writer;
         writer.write_buffer(0, gpuSceneDataBuffer.buffer, sizeof(GPUSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        writer.write_image(1, VulkanEngine::Instance()._skyHDRI.imageView, VulkanEngine::Instance()._skyHDRISampler,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        writer.write_image(2, VulkanEngine::Instance()._skyIrradiance.imageView, VulkanEngine::Instance()._skyHDRISampler,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
         writer.update_set(passExec._device, sceneDescriptor);
     }
 

@@ -13,6 +13,10 @@ layout(set = 0, binding = 0) uniform SceneData
 }
 sceneData;
 
+
+layout(set = 0, binding = 1) uniform sampler2D skyHDRI;
+layout(set = 0, binding = 2) uniform sampler2D skyIrradiance;
+#define SKY_HDRI_BOUND
 struct PointLight
 {
     mat4 transform;

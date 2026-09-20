@@ -7,7 +7,7 @@ layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D outImage;
 
 layout(push_constant) uniform BloomPush
 {
-    vec4 params; // x = threshold
+    vec4 params; // x = threshold, y = bright-pass clamp
 }
 pc;
 
@@ -26,5 +26,11 @@ void main()
 
     // Keep only the excess over the threshold. Passing the *whole* colour through meant an emissive
     // bulb at 40 contributed 40 to its neighbours, so intensity had to be ~0.03 to look sane.
-    imageStore(outImage, texel, vec4(max(color - pc.params.x, 0.0), 1.0));
+    vec3 excess = max(color - pc.params.x, 0.0);
+
+    // Clamp the bright pass. The blur below is only ~6 pixels wide, so a single extreme texel does
+    // not spread into a soft glow -- it becomes a tight, blazing fringe. Our HDRI sky peaks at
+    // 75,264, which is five orders of magnitude above a normal highlight and swamps everything
+    // near it. Standard firefly clamping: keep the highlight, discard the unusable magnitude.
+    imageStore(outImage, texel, vec4(min(excess, vec3(pc.params.y)), 1.0));
 }

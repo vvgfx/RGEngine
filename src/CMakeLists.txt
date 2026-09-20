@@ -39,6 +39,7 @@ add_executable (engine
   MaterialSystem.cpp
   dds_loader.h
   dds_loader.cpp
+  hdri_loader.cpp
   BindlessTextures.h
   BindlessTextures.cpp
   rgraph/features/PostProcessFeature.h

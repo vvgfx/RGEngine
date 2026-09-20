@@ -95,9 +95,10 @@ AllocatedImage GPUResourceAllocator::create_image(VkExtent3D size, VkFormat form
     return newImage;
 }
 
-AllocatedImage GPUResourceAllocator::create_image(void *data, VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped)
+AllocatedImage GPUResourceAllocator::create_image(void *data, VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped,
+                                                 uint32_t bytesPerTexel)
 {
-    size_t data_size = size.depth * size.width * size.height * 4;
+    size_t data_size = size_t(size.depth) * size.width * size.height * bytesPerTexel;
     AllocatedBuffer uploadbuffer = create_buffer(data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
     memcpy(uploadbuffer.info.pMappedData, data, data_size);

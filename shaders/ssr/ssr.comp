@@ -25,6 +25,12 @@ layout(set = 0, binding = 5) uniform SceneData
 }
 sceneData;
 
+layout(set = 0, binding = 6) uniform sampler2D skyHDRI;
+// Unused here -- SSR needs radiance, not ambient -- but sky.glsl compiles skyEnvAmbient
+// whenever SKY_HDRI_BOUND is set, so the binding has to exist.
+layout(set = 0, binding = 7) uniform sampler2D skyIrradiance;
+#define SKY_HDRI_BOUND
+
 #include "../lighting/sky.glsl"
 
 layout(push_constant) uniform SSRPush
@@ -170,6 +176,9 @@ void main()
         }
     }
 
+    // Two different weights, and conflating them is a bug. `confidence` is how much to trust the
+    // screen-space hit -- it fades where the data is unreliable. `strength` is how reflective the
+    // surface is at all, and applies to the sky fallback just as much as to a hit.
     if (hitMask > 0.0)
     {
         // Fade toward the screen edges. Without this, reflections terminate in a hard line wherever
@@ -179,23 +188,26 @@ void main()
 
         // rays pointing back at the camera reflect information we do not have
         hitMask *= clamp(1.0 - max(dot(R, -V), 0.0), 0.0, 1.0);
-
-        // Fade across the whole range up to the cutoff, not just the top half: a single mirror ray
-        // on a semi-rough surface produces hit/miss blotching rather than a believable reflection.
-        hitMask *= 1.0 - smoothstep(0.0, maxRoughness, roughness);
     }
 
-    // A ray that leaves the scene should reflect the sky, not nothing. Without this anything
-    // facing upward reflected black, which is why SSR read as barely present. skyRadiance omits
-    // the sun disc deliberately: a mirror ray grazing it would return an enormous value.
-    vec3 skyRefl = skyRadiance(R, sceneData.sunlightDirection.xyz, sceneData.debugParams.w,
-                               sceneData.ambientColor.rgb, sceneData.sunlightDirection.w);
-    hitColor = mix(skyRefl, hitColor, hitMask);
-    hitMask = 1.0;
+    // A ray that leaves the scene should reflect the sky, not nothing -- otherwise anything facing
+    // upward reflects black. skyEnv omits the sun disc deliberately: a mirror ray grazing it would
+    // return an enormous value.
+    vec3 skyRefl = skyEnv(R, sceneData.sunlightColor.xy, sceneData.ambientColor.rgb);
+    vec3 reflSource = mix(skyRefl, hitColor, hitMask);
+
+    // Applies to sky and hit alike: a single mirror ray is wrong on a rough surface either way.
+    float strength = 1.0 - smoothstep(0.0, maxRoughness, roughness);
 
     vec3 F0 = mix(vec3(0.04), lit, metallic);
     vec3 fresnel = fresnelSchlick(max(dot(N, -V), 0.0), F0);
 
-    vec3 reflection = hitColor * fresnel * hitMask * pc.params2.y;
+    // Grazing angles drive Schlick to 1.0, which is correct but lands exactly on silhouette edges,
+    // where the G-buffer normal is least reliable. Since this composites additively onto an already
+    // lit surface, leaving it unclamped rims every edge in the scene with sky -- invisible until
+    // bloom amplifies it. Dielectrics get capped; metals are genuinely mirror-like so they do not.
+    fresnel = min(fresnel, mix(vec3(0.25), vec3(1.0), metallic));
+
+    vec3 reflection = reflSource * fresnel * strength * pc.params2.y;
     imageStore(outImage, texel, vec4(showOnly ? reflection : lit + reflection, 1.0));
 }

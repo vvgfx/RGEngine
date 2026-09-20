@@ -237,7 +237,11 @@ void RGEngine::applySunDirection()
         // .w is the sun's strength, which the sky needs as well as its direction: a high sun at
         // 0.02 intensity is a night scene, and a Preetham midday sky over it looks broken.
         sceneData.sunlightDirection = glm::vec4(dir, mainDrawContext.sunIntensityScale);
-        sceneData.debugParams.w = mainDrawContext.skyTurbidity;
+
+        // sunlightColor was unused by every live shader; it now carries the HDRI controls.
+        // Intensity 0 makes the sky shader take the analytic path, so it doubles as the toggle.
+        sceneData.sunlightColor.x = _skyHDRILoaded ? mainDrawContext.skyHDRIIntensity : 0.0f;
+        sceneData.sunlightColor.y = mainDrawContext.skyHDRIYaw;
     }
 }
 
@@ -553,6 +557,7 @@ void RGEngine::imGuiAddParams()
         ImGui::SliderFloat("Exposure (EV)", &p.exposureEV, -6.0f, 6.0f, "%+.2f");
         ImGui::SliderFloat("Bloom", &p.bloomIntensity, 0.0f, 2.0f);
         ImGui::SliderFloat("Bloom threshold", &p.bloomThreshold, 0.0f, 8.0f);
+        ImGui::SliderFloat("Bloom clamp", &p.bloomClamp, 0.5f, 64.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
     }
 
     if (ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen))
@@ -584,7 +589,16 @@ void RGEngine::imGuiAddParams()
         ImGui::TextDisabled("%.2f %.2f %.2f", mainDrawContext.sunDir.x, mainDrawContext.sunDir.y, mainDrawContext.sunDir.z);
         ImGui::EndGroup();
 
-        ImGui::SliderFloat("Sky turbidity", &mainDrawContext.skyTurbidity, 2.0f, 10.0f);
+        if (_skyHDRILoaded)
+        {
+            ImGui::SliderFloat("HDRI intensity", &mainDrawContext.skyHDRIIntensity, 0.0f, 5.0f);
+            ImGui::SliderFloat("HDRI rotation", &mainDrawContext.skyHDRIYaw, -3.1416f, 3.1416f, "%.2f rad");
+            ImGui::TextDisabled("intensity 0 = analytic sky");
+        }
+        else
+        {
+            ImGui::TextDisabled("no assets/sky.hdr - using analytic sky");
+        }
         ImGui::SliderFloat("Camera speed", &mainCamera.speed, 0.5f, 500.0f, "%.1f u/s", ImGuiSliderFlags_Logarithmic);
         ImGui::TextDisabled("press P to dump camera pos/pitch/yaw to stdout");
         ImGui::Text("lights: %zu   opaque: %zu", mainDrawContext.lights.size(), mainDrawContext.OpaqueSurfaces.size());

@@ -15,6 +15,7 @@
 // ---- other includes ----
 #include "VkBootstrap.h"
 #include "vk_images.h"
+#include "hdri_loader.h"
 #include "vk_loader.h"
 #include <GPUResourceAllocator.h>
 #include <glm/gtx/transform.hpp>
@@ -326,6 +327,11 @@ void VulkanEngine::init_descriptors()
     {
         DescriptorLayoutBuilder builder;
         builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        // Equirectangular environment map. Lives on the scene set because every consumer of the
+        // sky -- composite, transparent -- already binds this layout, so one binding reaches them
+        // all. SSR has its own set and adds it separately.
+        builder.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        builder.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // SH9 irradiance
         _gpuSceneDataDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
     }
 
@@ -524,6 +530,39 @@ void VulkanEngine::init_default_data()
         });
 
     // gltf resources are now created in PBREngine.cpp
+    // Equirectangular sky. Hardcoded like the scene path: core glTF 2.0 carries neither HDR nor
+    // cubemaps, and the one extension that does (EXT_lights_image_based) is unsupported by
+    // fastgltf. Absence is not an error -- the sky falls back to the analytic model.
+    {
+        VkSamplerCreateInfo samplerInfo{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                                        .magFilter = VK_FILTER_LINEAR,
+                                        .minFilter = VK_FILTER_LINEAR,
+                                        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+                                        // u wraps around the horizon, v must not wrap or the poles bleed
+                                        .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                                        .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                                        .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                                        .maxLod = VK_LOD_CLAMP_NONE};
+        VK_CHECK(vkCreateSampler(_device, &samplerInfo, nullptr, &_skyHDRISampler));
+
+        if (auto hdri = load_hdri("../assets/sky.hdr"))
+        {
+            _skyHDRI = hdri->radiance;
+            _skyIrradiance = hdri->irradiance;
+            _skyHDRILoaded = true;
+        }
+        else
+        {
+            _skyIrradiance = _blackImage;
+            // Bind something valid anyway: the descriptor is in the layout whether or not a map
+            // exists, and an unwritten binding is a validation error.
+            _skyHDRI = _blackImage;
+            fmt::println("HDRI: falling back to the analytic sky");
+        }
+
+        _mainDeletionQueue.push_function([this]() { vkDestroySampler(_device, _skyHDRISampler, nullptr); });
+    }
+
 }
 
 void VulkanEngine::init_imgui()
