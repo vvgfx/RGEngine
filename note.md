@@ -85,6 +85,58 @@ Point shadows went from **+6.0 ms GPU / +3.4 ms CPU** to enabled by default:
 | SSR separates hit confidence from surface reflectivity | One mask for both rimmed every silhouette with sky |
 | Bloom bright pass is clamped | A 75,000 sky texel became a blazing fringe, not a glow |
 
+## Gotchas
+
+Things that cost real time and are invisible from reading the code.
+
+### Rendergraph
+
+- **`ReadsBuffer` / `WritesBuffer` are no-ops** (`Rendergraph.cpp:422`). Buffer handoffs between
+  passes need a manual `vkCmdPipelineBarrier2` — the graph emits nothing.
+- **Issue that barrier at the end of the producing pass**, not the start of the consumer. Graphics
+  passes are wrapped in `vkCmdBeginRendering`, where a pipeline barrier is illegal.
+- **`Build()` resets every tracked image to `UNDEFINED` each frame** (`:137`), so the first
+  transition discards contents. Nothing survives between frames without changing that.
+- **Naming an untracked image in a setup lambda** throws `std::out_of_range` from `Run`, not from
+  the setup — the stack trace points at the wrong place.
+- **Pass order is declaration order.** A pass that must sit *between* two passes of one feature has
+  to be declared by that feature; feature-level ordering cannot express it. See `RegisterCullPass`.
+
+### Build
+
+- **Shader `#include`s need `DEPFILE`.** Without it only the `.frag`/`.vert`/`.comp` is a
+  dependency, so editing a shared `.glsl` leaves stale SPIR-V behind and the build still reports
+  success. This silently defeated several fixes before it was found.
+- **`--target-env vulkan1.3` is not optional.** Some extensions compile into a malformed module
+  without it, with no error.
+- Deleting a globbed shader needs a re-configure; `CONFIGURE_DEPENDS` handles it.
+
+### Vulkan
+
+- **`create_image(data, ...)` takes `bytesPerTexel`, defaulting to 4.** Uploading a float format
+  without passing 8 or 16 copies a fraction of the data and yields garbage, silently.
+- **Reverse-Z everywhere**: near/far swapped into `glm::perspective`, depth clears to 0, compares
+  `GREATER_OR_EQUAL`. Any new depth pipeline must match or it renders nothing.
+
+### glTF and assets
+
+- **`MSFT_texture_dds` must be enabled on the parser** or `Texture::ddsImageIndex` stays empty and
+  every texture silently resolves to a PNG the asset may not ship.
+- **`KHR_materials_emissive_strength` multiplies emissive by up to 100** in Bistro. Enabling it is
+  correct and changes brightness enormously; nothing else is rescaled for you.
+- **Bistro is metres, ~130 units across** — not centimetres. Stale comments claimed otherwise and
+  poisoned the camera speed and far plane.
+- **`sunlightDirection` and `sunlightColor` are repurposed**: `.xyz/.w` is sun direction and
+  strength, and `sunlightColor.xy` is HDRI intensity and yaw. Both were dead fields.
+
+### Third-party
+
+- **imGuIZMO forces `using namespace glm;`** into the global namespace on the GLM path.
+  `VGM_DISABLE_AUTO_NAMESPACE` does **not** fix it — the library's own declarations use unqualified
+  `vec3`/`quat`, so defining it fails to compile. Include `imGuIZMOquat.h` last instead.
+- **`IMGUI_DEFINE_MATH_OPERATORS` must be defined before `imgui.h`.** `imgui_internal.h`
+  hard-errors otherwise, and imGuIZMO pulls it in. Set on the imgui target so order stops mattering.
+
 ## Sky — how and why
 
 One shared `shaders/lighting/sky.glsl` (72 lines), called by the background, the ambient term, the
