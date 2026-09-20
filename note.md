@@ -14,7 +14,8 @@ Scene: `assets/bistro_glb/bistro.glb` — Bistro exterior, metallic-roughness, 1
 | Cascaded shadows: 4 cascades, 4096² atlas, sphere fit, texel snapping | `ShadowFeature` |
 | Point-light cube shadows, 6 faces per light, 12 casters | `LocalShadowFeature` |
 | Tiled light culling: 16×16 tiles, per-tile depth bounds | `LightCullFeature` |
-| Preetham analytic sky, blended to a tinted night gradient | `lighting/sky.glsl` |
+| Equirectangular HDRI sky, gradient fallback when absent | `lighting/sky.glsl`, `hdri_loader` |
+| Cosine-convolved irradiance map for diffuse ambient | `hdri_loader` |
 | One sky feeds background, ambient, transparent and SSR | `lighting/sky.glsl` |
 | SSAO from position/normal G-buffer | `comp.frag` |
 | Screen-space reflections, roughness-gated | `SSRFeature` |
@@ -79,41 +80,53 @@ Point shadows went from **+6.0 ms GPU / +3.4 ms CPU** to enabled by default:
 | Camera speed 500 → 10, far plane comment corrected | Bistro is metres, ~130 units, not centimetres |
 | Transparent ambient was flat `vec3(0.03)`, now the sky | Glass and foliage ignored the sky entirely |
 | SSR returns sky on a miss, not black | Upward-facing surfaces reflected nothing |
-| Sky day/night blend keyed on sun strength, not just elevation | A high sun at 0.02 intensity is still night |
+| Ambient reads a convolved map, never a radiance mip | A mip kept the sun at 81; irradiance peaks at 2.3 |
+| Shader builds track their `#include`s via DEPFILE | Editing a `.glsl` left stale SPIR-V, silently |
+| SSR separates hit confidence from surface reflectivity | One mask for both rimmed every silhouette with sky |
+| Bloom bright pass is clamped | A 75,000 sky texel became a blazing fringe, not a glow |
 
 ## Sky — how and why
 
-One shared `shaders/lighting/sky.glsl`, called by the background, the ambient term, the transparent
-pass and the SSR miss path, so sky and derived lighting cannot disagree.
+One shared `shaders/lighting/sky.glsl` (72 lines), called by the background, the ambient term, the
+transparent pass and the SSR miss path, so sky and derived lighting cannot disagree.
 
 **No skybox mesh and no separate pass.** It is a branch in the composite, taken where
 `positionSample.w < 0.5` — the G-buffer's "geometry landed here" flag. That is a depth test using
 data already fetched, so it beats a cube at the far plane: no draw call, no vertex data, and sky
-pixels early-out of the whole light loop. The usual objection to screen-space sky, that you shade
-every pixel, does not apply when the pass runs anyway.
+pixels early-out of the whole light loop. The usual objection to screen-space sky — that you shade
+every pixel — does not apply when the pass runs anyway.
 
-**Daylight is Preetham**: a Perez distribution fitted to turbidity, evaluated in xyY, converted to
-linear sRGB, plus a 0.53° sun disc. Preetham rather than Hosek-Wilkie because HW needs a ~1500-float
-fitted coefficient dataset where Preetham derives its coefficients from turbidity with linear fits.
+**An equirectangular `.hdr`** at `assets/sky.hdr`, loaded with `stbi_loadf` and stored as RGBA16F.
+Hardcoded like the scene path: core glTF 2.0 carries neither HDR nor cubemaps, and the one
+extension that does (`EXT_lights_image_based`) is unsupported by fastgltf. Missing is not fatal —
+the sky falls back to a tinted three-band gradient.
 
-**Below the horizon it blends to the old three-band tinted gradient.** Preetham is a daylight model
-— its zenith luminance goes negative once the sun crosses the horizon — and the gradient is what
-the lamps and point shadows were balanced against.
+### The two maps, and why the split matters
 
-Known weak spot: Preetham's sunsets, and low sun angles generally — see the Zotti & Wilkie review
-below. Hosek-Wilkie is the drop-in upgrade if that starts to matter; Hillaire is the step beyond,
-and needs precomputed LUTs and extra passes.
+| Map | Size | Used by |
+|---|---|---|
+| `skyHDRI` | full res, mipped | background, SSR reflections |
+| `skyIrradiance` | 64×32, cosine-convolved | diffuse ambient, and only this |
 
-**Coefficient provenance.** The 15 Perez distribution coefficients and the zenith luminance formula
-in `sky.glsl` were checked line by line against Appendix A.2 of the paper and match exactly. The
-`chi` expression and the two zenith *chromaticity* polynomial matrices (`xz`, `yz`) are typeset as
-matrix equations that do not survive text extraction, so those remain unverified against the
-primary source — worth re-checking against a printed copy if the sky's hue ever looks off.
+**Do not collapse these.** Sampling a high mip of the radiance map as ambient looks reasonable and
+is wrong by orders of magnitude: a mip is a small-angle box blur, while irradiance is a
+cosine-weighted integral over the whole hemisphere. Measured on the current sky — radiance peaks at
+**75,264** and mip 6 still returned **81**, against a correctly convolved peak of **2.26**. Any
+surface facing the sun was blasted, which showed as bright rims wherever a silhouette swept its
+normal past it.
+
+The convolution is brute force over a 32×16 downsample: for each output direction, integrate every
+input direction weighted by `cos(angle) × solidAngle`. 64k taps, instant at load. Chosen over a
+spherical-harmonic projection because it is the definition of irradiance written out, with no band
+coefficients to take on trust.
+
+Still missing for real IBL: a prefiltered specular chain and the split-sum BRDF LUT. Reflections
+currently sample mip 0 regardless of roughness.
 
 ### References
 
-- [Preetham, Shirley & Smits 1999, *A Practical Analytic Model for Daylight*](https://courses.cs.duke.edu/cps124/spring08/assign/07_papers/p91-preetham.pdf) — coefficients are in Appendix A.2
-- [Zotti & Wilkie 2007, *A Critical Review of the Preetham Skylight Model*](https://www.cg.tuwien.ac.at/research/publications/2007/zotti-2007-wscg/zotti-2007-wscg-paper.pdf) — where and why it breaks down
-- [Hosek & Wilkie 2012, *An Analytic Model for Full Spectral Sky-Dome Radiance*](https://cgg.mff.cuni.cz/projects/SkylightModelling/)
-- [Hillaire 2020, *A Scalable and Production Ready Sky and Atmosphere Rendering Technique*](https://onlinelibrary.wiley.com/doi/abs/10.1111/cgf.14050)
-- [State-of-the-art skybox rendering discussion](https://gamedev.net/forums/topic/706994-state-of-the-art-skybox-rendering/)
+- [Scratchapixel — Simulating the Colors of the Sky](https://www.scratchapixel.com/lessons/procedural-generation-virtual-worlds/simulating-sky/simulating-colors-of-the-sky.html) — the physics behind sky radiance
+- [Harry Alisavakis — Sky shader](https://halisavakis.com/my-take-on-shaders-sky-shader/) — complete, copyable gradient-sky shader if the HDRI is ever dropped
+- [Kelvin van Hoorn — Unity skybox shader](https://kelvinvanhoorn.com/tutorials/unity_skybox_shader/) — gradient, sun disc, moon, stars, with full source
+- [EXT_lights_image_based](https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Vendor/EXT_lights_image_based/README.md) — how glTF *would* carry an IBL: prefiltered cubemap mips plus SH irradiance. Unsupported by fastgltf
+- [State-of-the-art skybox rendering](https://gamedev.net/forums/topic/706994-state-of-the-art-skybox-rendering/) — fullscreen pass vs cube mesh
